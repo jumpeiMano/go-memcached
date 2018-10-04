@@ -73,8 +73,10 @@ func (cp *ConnectionPool) Delete(key string) (deleted bool, err error) {
 	}()
 
 	// delete <key> [<time>] [noreply]\r\n
-	c.writestrings("delete ", key, "\r\n")
-	reply := c.readline()
+	node, _ := cp.hashRing.GetNode(key)
+	nc := c.ncs[node]
+	nc.writestrings("delete ", key, "\r\n")
+	reply := nc.readline()
 	if strings.Contains(reply, "ERROR") {
 		panic(NewError("Server error"))
 	}
@@ -94,46 +96,49 @@ func (cp *ConnectionPool) FlushAll() (err error) {
 
 	c.setDeadline()
 	// flush_all [delay] [noreply]\r\n
-	c.writestrings("flush_all\r\n")
-	response := c.readline()
-	if !strings.Contains(response, "OK") {
-		panic(NewError(fmt.Sprintf("Error in FlushAll %v", response)))
+	for _, s := range cp.servers {
+		nc := c.ncs[s.Aliase]
+		nc.writestrings("flush_all\r\n")
+		response := nc.readline()
+		if !strings.Contains(response, "OK") {
+			panic(NewError(fmt.Sprintf("Error in FlushAll %v", response)))
+		}
 	}
 	return nil
 }
 
-// Stats returns a list of basic stats.
-func (cp *ConnectionPool) Stats(argument string) (result []byte, err error) {
-	defer handleError(&err)
-	c, err := cp.conn(context.Background())
-	if err != nil {
-		return result, err
-	}
-	defer func() {
-		cp.putConn(c, err)
-	}()
-
-	c.setDeadline()
-	if argument == "" {
-		c.writestrings("stats\r\n")
-	} else {
-		c.writestrings("stats ", argument, "\r\n")
-	}
-	c.flush()
-	for {
-		l := c.readline()
-		if strings.HasPrefix(l, "END") {
-			break
-		}
-		if strings.Contains(l, "ERROR") {
-			return nil, NewError(l)
-		}
-		result = append(result, l...)
-		result = append(result, '\n')
-	}
-	return result, err
-}
-
+// // Stats returns a list of basic stats.
+// func (cp *ConnectionPool) Stats(argument string) (result []byte, err error) {
+// 	defer handleError(&err)
+// 	c, err := cp.conn(context.Background())
+// 	if err != nil {
+// 		return result, err
+// 	}
+// 	defer func() {
+// 		cp.putConn(c, err)
+// 	}()
+//
+// 	c.setDeadline()
+// 	if argument == "" {
+// 		c.writestrings("stats\r\n")
+// 	} else {
+// 		c.writestrings("stats ", argument, "\r\n")
+// 	}
+// 	c.flush()
+// 	for {
+// 		l := c.readline()
+// 		if strings.HasPrefix(l, "END") {
+// 			break
+// 		}
+// 		if strings.Contains(l, "ERROR") {
+// 			return nil, NewError(l)
+// 		}
+// 		result = append(result, l...)
+// 		result = append(result, '\n')
+// 	}
+// 	return result, err
+// }
+//
 func (cp *ConnectionPool) get(command string, keys []string) (results []Item) {
 	c, err := cp.conn(context.Background())
 	if err != nil {

@@ -3,18 +3,21 @@ package memcached
 import (
 	"bufio"
 	"context"
+	"fmt"
 	"log"
 	"net"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/serialx/hashring"
 )
 
 const connRequestQueueSize = 1000000
 
 // ConnectionPool struct
 type ConnectionPool struct {
-	servers        []string // []string{{<host>:[<port>] [alias]}}
+	servers        []Server
 	prefix         string
 	noreply        bool
 	hashFunc       int
@@ -29,6 +32,33 @@ type ConnectionPool struct {
 	maxOpen        int           // maximum amount of connection num. maxOpen <= 0 means unlimited.
 	cleanerCh      chan struct{}
 	closed         bool
+	hashRing       *hashring.HashRing
+}
+
+// Servers are slice of Server.
+type Servers []Server
+
+func (ss *Servers) getNodes() []string {
+	nodes := make([]string, len(*ss))
+	for i, s := range *ss {
+		nodes[i] = s.Aliase
+	}
+	return nodes
+}
+
+// Server is the server's info of memcahced.
+type Server struct {
+	Host   string
+	Port   int
+	Aliase string
+}
+
+func (s *Server) getAddr() string {
+	port := s.Port
+	if port == 0 {
+		port = DefaultPort
+	}
+	return fmt.Sprintf("%s:%d", s.Host, s.Port)
 }
 
 type connRequest struct {
@@ -37,14 +67,14 @@ type connRequest struct {
 }
 
 // New create ConnectionPool
-func New(servers []string, noreply bool, prefix string) (cp *ConnectionPool) {
+func New(servers Servers, noreply bool, prefix string) (cp *ConnectionPool) {
 	cp = new(ConnectionPool)
 	cp.servers = servers
 	cp.prefix = prefix
 	cp.noreply = noreply
 	cp.openerCh = make(chan struct{}, connRequestQueueSize)
 	cp.connRequests = make(map[uint64]chan connRequest)
-	cp.maxOpen = 1 // default value
+	cp.hashRing = hashring.New(servers.getNodes())
 
 	go cp.opener()
 
@@ -229,18 +259,18 @@ func (cp *ConnectionPool) newConn() (*conn, error) {
 	ls := len(cp.servers)
 	c := conn{
 		cp:        cp,
-		ncs:       make([]*nc, ls),
+		ncs:       make(map[string]*nc, ls),
 		createdAt: time.Now(),
 	}
-	for i, s := range cp.servers {
-		if strings.Contains(s, "/") {
+	for _, s := range cp.servers {
+		if strings.Contains(s.Host, "/") {
 			network = "unix"
 		} else {
 			network = "tcp"
 		}
 		var _nc nc
 		var err error
-		_nc.Conn, err = net.DialTimeout(network, s, cp.connectTimeout)
+		_nc.Conn, err = net.DialTimeout(network, s.getAddr(), cp.connectTimeout)
 		if err != nil {
 			return nil, err
 		}
@@ -248,7 +278,7 @@ func (cp *ConnectionPool) newConn() (*conn, error) {
 			Reader: bufio.NewReader(_nc),
 			Writer: bufio.NewWriter(_nc),
 		}
-		c.ncs[i] = &_nc
+		c.ncs[s.Aliase] = &_nc
 	}
 	return &c, nil
 }
@@ -322,8 +352,7 @@ func (cp *ConnectionPool) connectionCleaner(d time.Duration) {
 		var closing []*conn
 		for i := 0; i < len(cp.freeConns); i++ {
 			c := cp.freeConns[i]
-			createdAt := c.getCreatedAt()
-			if createdAt.Before(expiredSince) {
+			if c.createdAt.Before(expiredSince) {
 				closing = append(closing, c)
 				last := len(cp.freeConns) - 1
 				cp.freeConns[i] = cp.freeConns[last]

@@ -13,7 +13,7 @@ import (
 type conn struct {
 	cp *ConnectionPool
 	sync.Mutex
-	ncs       []*nc
+	ncs       map[string]*nc
 	createdAt time.Time
 	closed    bool
 }
@@ -40,48 +40,6 @@ var (
 	ErrBadConn         = errors.New("bad conn")
 )
 
-func (c *conn) writestrings(strs ...string) {
-	for _, s := range strs {
-		c.writestring(s)
-	}
-}
-
-func (c *conn) writestring(s string) {
-	if _, err := c.ncs[0].buffered.WriteString(s); err != nil {
-		panic(NewError("%s", err))
-	}
-}
-
-func (c *conn) write(b []byte) {
-	if _, err := c.ncs[0].buffered.Write(b); err != nil {
-		panic(NewError("%s", err))
-	}
-}
-
-func (c *conn) flush() {
-	if err := c.ncs[0].buffered.Flush(); err != nil {
-		panic(NewError("%s", err))
-	}
-}
-
-func (c *conn) readline() string {
-	c.flush()
-	l, isPrefix, err := c.ncs[0].buffered.ReadLine()
-	if isPrefix || err != nil {
-		panic(NewError("Prefix: %v, %s", isPrefix, err))
-	}
-	return string(l)
-}
-
-func (c *conn) read(count int) []byte {
-	c.flush()
-	b := make([]byte, count)
-	if _, err := io.ReadFull(c.ncs[0].buffered, b); err != nil {
-		panic(NewError("%s", err))
-	}
-	return b
-}
-
 func (c *conn) close() error {
 	for i := range c.ncs {
 		if err := c.ncs[i].Conn.Close(); err != nil {
@@ -106,12 +64,46 @@ func (c *conn) setDeadline() {
 	}
 }
 
-func (c *conn) getCreatedAt() time.Time {
-	return c.createdAt
+func (nc *nc) writestrings(strs ...string) {
+	for _, s := range strs {
+		c.writestring(s)
+	}
 }
 
-func (c *conn) getNCS() []*nc {
-	return c.ncs
+func (nc *nc) writestring(s string) {
+	if _, err := nc.buffered.WriteString(s); err != nil {
+		panic(NewError("%s", err))
+	}
+}
+
+func (nc *nc) write(b []byte) {
+	if _, err := nc.buffered.Write(b); err != nil {
+		panic(NewError("%s", err))
+	}
+}
+
+func (nc *nc) flush() {
+	if err := nc.buffered.Flush(); err != nil {
+		panic(NewError("%s", err))
+	}
+}
+
+func (nc *nc) readline() string {
+	c.flush()
+	l, isPrefix, err := nc.buffered.ReadLine()
+	if isPrefix || err != nil {
+		panic(NewError("Prefix: %v, %s", isPrefix, err))
+	}
+	return string(l)
+}
+
+func (nc *nc) read(count int) []byte {
+	c.flush()
+	b := make([]byte, count)
+	if _, err := io.ReadFull(nc.buffered, b); err != nil {
+		panic(NewError("%s", err))
+	}
+	return b
 }
 
 // Error is the error from CacheService.
