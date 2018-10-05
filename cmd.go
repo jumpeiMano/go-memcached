@@ -10,7 +10,7 @@ import (
 // Get returns cached data for given keys.
 func (cp *ConnectionPool) Get(keys ...string) (results []Item, err error) {
 	defer handleError(&err)
-	results = cp.get("get", keys)
+	results, err = cp.get("get", keys)
 	return
 }
 
@@ -19,7 +19,7 @@ func (cp *ConnectionPool) Get(keys ...string) (results []Item, err error) {
 // the item's CAS value has changed since you Gets'ed it, it will not be stored.
 func (cp *ConnectionPool) Gets(keys ...string) (results []Item, err error) {
 	defer handleError(&err)
-	results = cp.get("gets", keys)
+	results, err = cp.get("gets", keys)
 	return
 }
 
@@ -139,59 +139,71 @@ func (cp *ConnectionPool) FlushAll() (err error) {
 // 	return result, err
 // }
 //
-func (cp *ConnectionPool) get(command string, keys []string) (results []Item) {
+func (cp *ConnectionPool) get(command string, keys []string) ([]Item, error) {
+	var results []Item
 	c, err := cp.conn(context.Background())
 	if err != nil {
-		return
+		return results, err
 	}
 	defer func() {
 		cp.putConn(c, err)
 	}()
 
+	c.reset()
 	c.setDeadline()
 	results = make([]Item, 0, len(keys))
 	if len(keys) == 0 {
-		return
+		return results, nil
 	}
 	// get(s) <key>*\r\n
-	c.writestrings(command)
 	for _, key := range keys {
-		c.writestrings(" ", key)
+		node, _ := cp.hashRing.GetNode(key)
+		if c.ncs[node].count == 0 {
+			c.ncs[node].writestrings(command)
+		}
+		c.ncs[node].writestrings(" ", key)
+		c.ncs[node].count++
 	}
-	c.writestrings("\r\n")
-	header := c.readline()
-	var result Item
-	for strings.HasPrefix(header, "VALUE") {
-		// VALUE <key> <flags> <bytes> [<cas unique>]\r\n
-		chunks := strings.Split(header, " ")
-		if len(chunks) < 4 {
-			panic(NewError("Malformed response: %s", string(header)))
+
+	for node := range c.ncs {
+		if c.ncs[node].count == 0 {
+			continue
 		}
-		result.Key = chunks[1]
-		flags64, err := strconv.ParseUint(chunks[2], 10, 16)
-		if err != nil {
-			panic(NewError("%v", err))
-		}
-		result.Flags = uint16(flags64)
-		size, err := strconv.ParseUint(chunks[3], 10, 64)
-		if err != nil {
-			panic(NewError("%v", err))
-		}
-		if len(chunks) == 5 {
-			result.Cas, err = strconv.ParseUint(chunks[4], 10, 64)
+		var result Item
+		c.ncs[node].writestrings("\r\n")
+		header := c.ncs[node].readline()
+		for strings.HasPrefix(header, "VALUE") {
+			// VALUE <key> <flags> <bytes> [<cas unique>]\r\n
+			chunks := strings.Split(header, " ")
+			if len(chunks) < 4 {
+				panic(NewError("Malformed response: %s", string(header)))
+			}
+			result.Key = chunks[1]
+			flags64, err := strconv.ParseUint(chunks[2], 10, 16)
 			if err != nil {
 				panic(NewError("%v", err))
 			}
+			result.Flags = uint16(flags64)
+			size, err := strconv.ParseUint(chunks[3], 10, 64)
+			if err != nil {
+				panic(NewError("%v", err))
+			}
+			if len(chunks) == 5 {
+				result.Cas, err = strconv.ParseUint(chunks[4], 10, 64)
+				if err != nil {
+					panic(NewError("%v", err))
+				}
+			}
+			// <data block>\r\n
+			result.Value = c.ncs[node].read(int(size) + 2)[:size]
+			results = append(results, result)
+			header = c.ncs[node].readline()
 		}
-		// <data block>\r\n
-		result.Value = c.read(int(size) + 2)[:size]
-		results = append(results, result)
-		header = c.readline()
+		if !strings.HasPrefix(header, "END") {
+			panic(NewError("Malformed response: %s", string(header)))
+		}
 	}
-	if !strings.HasPrefix(header, "END") {
-		panic(NewError("Malformed response: %s", string(header)))
-	}
-	return
+	return results, nil
 }
 
 func (cp *ConnectionPool) store(command, key string, flags uint16, timeout uint64, value []byte, cas uint64) (stored bool) {
@@ -207,23 +219,26 @@ func (cp *ConnectionPool) store(command, key string, flags uint16, timeout uint6
 		cp.putConn(c, err)
 	}()
 
+	c.reset()
 	c.setDeadline()
+	node, _ := cp.hashRing.GetNode(key)
+	nc := c.ncs[node]
 	// <command name> <key> <flags> <exptime> <bytes> [noreply]\r\n
-	c.writestrings(command, " ", key, " ")
-	c.write(strconv.AppendUint(nil, uint64(flags), 10))
-	c.writestring(" ")
-	c.write(strconv.AppendUint(nil, timeout, 10))
-	c.writestring(" ")
-	c.write(strconv.AppendInt(nil, int64(len(value)), 10))
+	nc.writestrings(command, " ", key, " ")
+	nc.write(strconv.AppendUint(nil, uint64(flags), 10))
+	nc.writestring(" ")
+	nc.write(strconv.AppendUint(nil, timeout, 10))
+	nc.writestring(" ")
+	nc.write(strconv.AppendInt(nil, int64(len(value)), 10))
 	if cas != 0 {
-		c.writestring(" ")
-		c.write(strconv.AppendUint(nil, cas, 10))
+		nc.writestring(" ")
+		nc.write(strconv.AppendUint(nil, cas, 10))
 	}
-	c.writestring("\r\n")
+	nc.writestring("\r\n")
 	// <data block>\r\n
-	c.write(value)
-	c.writestring("\r\n")
-	reply := c.readline()
+	nc.write(value)
+	nc.writestring("\r\n")
+	reply := nc.readline()
 	if strings.Contains(reply, "ERROR") {
 		panic(NewError("Server error"))
 	}

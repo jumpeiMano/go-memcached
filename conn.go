@@ -20,6 +20,7 @@ type conn struct {
 
 type nc struct {
 	net.Conn
+	count    int
 	buffered bufio.ReadWriter
 }
 
@@ -39,6 +40,12 @@ var (
 	ErrMemcachedClosed = errors.New("memcached is closed")
 	ErrBadConn         = errors.New("bad conn")
 )
+
+func (c *conn) reset() {
+	for node := range c.ncs {
+		c.ncs[node].count = 0
+	}
+}
 
 func (c *conn) close() error {
 	for i := range c.ncs {
@@ -66,7 +73,7 @@ func (c *conn) setDeadline() {
 
 func (nc *nc) writestrings(strs ...string) {
 	for _, s := range strs {
-		c.writestring(s)
+		nc.writestring(s)
 	}
 }
 
@@ -89,7 +96,7 @@ func (nc *nc) flush() {
 }
 
 func (nc *nc) readline() string {
-	c.flush()
+	nc.flush()
 	l, isPrefix, err := nc.buffered.ReadLine()
 	if isPrefix || err != nil {
 		panic(NewError("Prefix: %v, %s", isPrefix, err))
@@ -98,7 +105,7 @@ func (nc *nc) readline() string {
 }
 
 func (nc *nc) read(count int) []byte {
-	c.flush()
+	nc.flush()
 	b := make([]byte, count)
 	if _, err := io.ReadFull(nc.buffered, b); err != nil {
 		panic(NewError("%s", err))
