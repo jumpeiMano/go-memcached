@@ -8,11 +8,14 @@ import (
 	"net"
 	"sync"
 	"time"
+
+	"github.com/serialx/hashring"
 )
 
 type conn struct {
 	cp *ConnectionPool
 	sync.Mutex
+	hashRing  *hashring.HashRing
 	ncs       map[string]*nc
 	createdAt time.Time
 	closed    bool

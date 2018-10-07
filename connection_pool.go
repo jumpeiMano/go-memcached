@@ -17,7 +17,7 @@ const connRequestQueueSize = 1000000
 
 // ConnectionPool struct
 type ConnectionPool struct {
-	servers        []Server
+	servers        Servers
 	prefix         string
 	noreply        bool
 	hashFunc       int
@@ -32,7 +32,6 @@ type ConnectionPool struct {
 	maxOpen        int           // maximum amount of connection num. maxOpen <= 0 means unlimited.
 	cleanerCh      chan struct{}
 	closed         bool
-	hashRing       *hashring.HashRing
 }
 
 // Servers are slice of Server.
@@ -58,7 +57,7 @@ func (s *Server) getAddr() string {
 	if port == 0 {
 		port = DefaultPort
 	}
-	return fmt.Sprintf("%s:%d", s.Host, s.Port)
+	return fmt.Sprintf("%s:%d", s.Host, port)
 }
 
 type connRequest struct {
@@ -74,7 +73,6 @@ func New(servers Servers, noreply bool, prefix string) (cp *ConnectionPool) {
 	cp.noreply = noreply
 	cp.openerCh = make(chan struct{}, connRequestQueueSize)
 	cp.connRequests = make(map[uint64]chan connRequest)
-	cp.hashRing = hashring.New(servers.getNodes())
 
 	go cp.opener()
 
@@ -259,6 +257,7 @@ func (cp *ConnectionPool) newConn() (*conn, error) {
 	ls := len(cp.servers)
 	c := conn{
 		cp:        cp,
+		hashRing:  hashring.New(cp.servers.getNodes()),
 		ncs:       make(map[string]*nc, ls),
 		createdAt: time.Now(),
 	}

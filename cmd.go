@@ -73,7 +73,7 @@ func (cp *ConnectionPool) Delete(key string) (deleted bool, err error) {
 	}()
 
 	// delete <key> [<time>] [noreply]\r\n
-	node, _ := cp.hashRing.GetNode(key)
+	node, _ := c.hashRing.GetNode(key)
 	nc := c.ncs[node]
 	nc.writestrings("delete ", key, "\r\n")
 	reply := nc.readline()
@@ -157,7 +157,7 @@ func (cp *ConnectionPool) get(command string, keys []string) ([]Item, error) {
 	}
 	// get(s) <key>*\r\n
 	for _, key := range keys {
-		node, _ := cp.hashRing.GetNode(key)
+		node, _ := c.hashRing.GetNode(key)
 		if c.ncs[node].count == 0 {
 			c.ncs[node].writestrings(command)
 		}
@@ -221,7 +221,7 @@ func (cp *ConnectionPool) store(command, key string, flags uint16, timeout uint6
 
 	c.reset()
 	c.setDeadline()
-	node, _ := cp.hashRing.GetNode(key)
+	node, _ := c.hashRing.GetNode(key)
 	nc := c.ncs[node]
 	// <command name> <key> <flags> <exptime> <bytes> [noreply]\r\n
 	nc.writestrings(command, " ", key, " ")
