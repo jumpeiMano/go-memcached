@@ -22,6 +22,7 @@ type ConnectionPool struct {
 	noreply        bool
 	hashFunc       int
 	connectTimeout time.Duration
+	pollTimeout    time.Duration
 	mu             sync.Mutex
 	freeConns      []*conn
 	numOpen        int
@@ -302,6 +303,20 @@ func (cp *ConnectionPool) SetConnMaxLifetime(d time.Duration) {
 	cp.maxLifetime = d
 	cp.startCleanerLocked()
 	cp.mu.Unlock()
+}
+
+// SetConnectTimeout sets the timeout of connect to memcached server.
+func (cp *ConnectionPool) SetConnectTimeout(timeout time.Duration) {
+	cp.mu.Lock()
+	defer cp.mu.Unlock()
+	cp.connectTimeout = timeout
+}
+
+// SetPollTimeout sets the timeout of polling from memcached server.
+func (cp *ConnectionPool) SetPollTimeout(timeout time.Duration) {
+	cp.mu.Lock()
+	defer cp.mu.Unlock()
+	cp.pollTimeout = timeout
 }
 
 // SetConnMaxOpen sets the maximum amount of opening connections.
