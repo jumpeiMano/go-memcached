@@ -5,7 +5,6 @@ references:
     docker:
       - image: jumpeimano/go-dep-image:1.11
       - image: jumpeimano/memcached
-        command: ["-port", "11211"]
       - image: jumpeimano/memcached
         command: ["-port", "11212"]
       - image: jumpeimano/memcached
