@@ -1,0 +1,34 @@
+version: 2
+references:
+  build_config: &build_config
+    working_directory: /go/src/github.com/jumpeiMano/go-memcached
+    docker:
+      - image: jumpeimano/go-dep-image:1.11
+      - image: memcached
+  restore_vendor_cache: &restore_vendor_cache
+    restore_cache:
+      key: vendor-cache-{{ .Branch }}-{{ checksum "Gopkg.lock" }}
+  save_vendor_cache: &save_vendor_cache
+    save_cache:
+      key: vendor-cache-{{ .Branch }}-{{ checksum "Gopkg.lock" }}
+      paths:
+        - vendor
+jobs:
+  build:
+    <<: *build_config
+    steps:
+      - run: go version
+      - checkout
+      - *restore_vendor_cache
+      - run: make lint
+      - run: make test
+
+workflows:
+  version: 2
+  build_and_deploy:
+    jobs:
+      - build:
+          context: fuji-deploy
+          filters:
+            tags:
+              only: /.*/
