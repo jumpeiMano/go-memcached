@@ -131,8 +131,9 @@ func (cp *ConnectionPool) Delete(keys ...string) (failedKeys []string, err error
 	c.reset()
 	// delete <key> [<time>] [noreply]\r\n
 	for _, key := range keys {
-		node, _ := c.hashRing.GetNode(key)
-		c.ncs[node].writestrings("delete ", key)
+		rawkey := cp.addPrefix(key)
+		node, _ := c.hashRing.GetNode(rawkey)
+		c.ncs[node].writestrings("delete ", rawkey)
 		if cp.noreply {
 			c.ncs[node].writestring(" noreply")
 			c.ncs[node].writestrings("\r\n")
@@ -243,11 +244,12 @@ func (cp *ConnectionPool) get(command string, keys []string) ([]*Item, error) {
 	}
 	// get(s) <key>*\r\n
 	for _, key := range keys {
-		node, _ := c.hashRing.GetNode(key)
+		rawkey := cp.addPrefix(key)
+		node, _ := c.hashRing.GetNode(rawkey)
 		if c.ncs[node].count == 0 {
 			c.ncs[node].writestrings(command)
 		}
-		c.ncs[node].writestrings(" ", key)
+		c.ncs[node].writestrings(" ", rawkey)
 		c.ncs[node].writestrings("\r\n")
 		c.ncs[node].count++
 	}
@@ -267,7 +269,7 @@ func (cp *ConnectionPool) get(command string, keys []string) ([]*Item, error) {
 			if len(chunks) < 4 {
 				return results, fmt.Errorf("Malformed response: %s", string(header))
 			}
-			result.Key = chunks[1]
+			result.Key = cp.removePrefix(chunks[1])
 			flags64, err := strconv.ParseUint(chunks[2], 10, 16)
 			if err != nil {
 				return results, errors.Wrap(err, "Failed ParseUint")
@@ -314,9 +316,10 @@ func (cp *ConnectionPool) store(command string, items []*Item) (failedKeys []str
 
 	c.reset()
 	for _, item := range items {
-		node, _ := c.hashRing.GetNode(item.Key)
+		rawkey := cp.addPrefix(item.Key)
+		node, _ := c.hashRing.GetNode(rawkey)
 		// <command name> <key> <flags> <exptime> <bytes> [noreply]\r\n
-		c.ncs[node].writestrings(command, " ", item.Key, " ")
+		c.ncs[node].writestrings(command, " ", rawkey, " ")
 		c.ncs[node].write(strconv.AppendUint(nil, uint64(item.Flags), 10))
 		c.ncs[node].writestring(" ")
 		c.ncs[node].write(strconv.AppendUint(nil, uint64(item.Exp), 10))
