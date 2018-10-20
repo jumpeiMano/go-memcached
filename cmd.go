@@ -171,8 +171,7 @@ func (cp *ConnectionPool) FlushAll() error {
 
 	c.setDeadline()
 	// flush_all [delay] [noreply]\r\n
-	for _, s := range cp.servers {
-		nc := c.ncs[s.Alias]
+	for _, nc := range c.ncs {
 		nc.writestrings("flush_all\r\n")
 		_, err = nc.readline()
 		if err != nil {
