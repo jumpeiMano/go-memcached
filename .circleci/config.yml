@@ -5,6 +5,13 @@ references:
     docker:
       - image: jumpeimano/go-dep-image:1.11
       - image: memcached
+        command: ["-port", "11211"]
+      - image: memcached
+        command: ["-port", "11212"]
+      - image: memcached
+        command: ["-port", "11213"]
+      - image: memcached
+        command: ["-port", "11214"]
   restore_vendor_cache: &restore_vendor_cache
     restore_cache:
       key: vendor-cache-{{ .Branch }}-{{ checksum "Gopkg.lock" }}
