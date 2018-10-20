@@ -20,6 +20,13 @@ jobs:
       - run: go version
       - checkout
       - *restore_vendor_cache
+      - run:
+          name: Vendoring
+          command: |
+              if [ ! -e vendor ]; then
+                  make dep-ensure
+              fi
+      - *save_vendor_cache
       - run: make lint
       - run: make test
 
