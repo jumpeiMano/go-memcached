@@ -38,7 +38,7 @@ jobs:
       - run:
           name: Wait for memcached
           command: |
-            sleep 10
+            dockerize -wait tcp://localhost:11211 -timeout 1m
       - run: make test
 
 workflows:
