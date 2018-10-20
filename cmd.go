@@ -5,11 +5,18 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+
+	"github.com/pkg/errors"
+)
+
+// errors
+var (
+	ErrBadRequest = errors.New("Bad Request")
+	ErrServer     = errors.New("Server Error")
 )
 
 // Get returns cached data for given keys.
 func (cp *ConnectionPool) Get(keys ...string) (results []Item, err error) {
-	defer handleError(&err)
 	results, err = cp.get("get", keys)
 	return
 }
@@ -18,52 +25,43 @@ func (cp *ConnectionPool) Get(keys ...string) (results []Item, err error) {
 // for using with CAS. Gets returns a CAS identifier with the item. If
 // the item's CAS value has changed since you Gets'ed it, it will not be stored.
 func (cp *ConnectionPool) Gets(keys ...string) (results []Item, err error) {
-	defer handleError(&err)
 	results, err = cp.get("gets", keys)
 	return
 }
 
 // Set set the value with specified cache key.
 func (cp *ConnectionPool) Set(key string, flags uint16, value []byte) (stored bool, err error) {
-	defer handleError(&err)
-	return cp.store("set", key, flags, value, 0), nil
+	return cp.store("set", key, flags, value, 0)
 }
 
 // Add store the value only if it does not already exist.
 func (cp *ConnectionPool) Add(key string, flags uint16, value []byte) (stored bool, err error) {
-	defer handleError(&err)
-	return cp.store("add", key, flags, value, 0), nil
+	return cp.store("add", key, flags, value, 0)
 }
 
 // Replace replaces the value, only if the value already exists,
 // for the specified cache key.
 func (cp *ConnectionPool) Replace(key string, flags uint16, value []byte) (stored bool, err error) {
-	defer handleError(&err)
-	return cp.store("replace", key, flags, value, 0), nil
+	return cp.store("replace", key, flags, value, 0)
 }
 
 // Append appends the value after the last bytes in an existing item.
 func (cp *ConnectionPool) Append(key string, flags uint16, value []byte) (stored bool, err error) {
-	defer handleError(&err)
-	return cp.store("append", key, flags, value, 0), nil
+	return cp.store("append", key, flags, value, 0)
 }
 
 // Prepend prepends the value before existing value.
 func (cp *ConnectionPool) Prepend(key string, flags uint16, value []byte) (stored bool, err error) {
-	defer handleError(&err)
-	return cp.store("prepend", key, flags, value, 0), nil
+	return cp.store("prepend", key, flags, value, 0)
 }
 
 // Cas stores the value only if no one else has updated the data since you read it last.
 func (cp *ConnectionPool) Cas(key string, flags uint16, value []byte, cas uint64) (stored bool, err error) {
-	defer handleError(&err)
-	return cp.store("cas", key, flags, value, cas), nil
+	return cp.store("cas", key, flags, value, cas)
 }
 
 // Delete delete the value for the specified cache key.
 func (cp *ConnectionPool) Delete(key string) (deleted bool, err error) {
-	defer handleError(&err)
-
 	c, err := cp.conn(context.Background())
 	if err != nil {
 		return false, err
@@ -76,19 +74,18 @@ func (cp *ConnectionPool) Delete(key string) (deleted bool, err error) {
 	node, _ := c.hashRing.GetNode(key)
 	nc := c.ncs[node]
 	nc.writestrings("delete ", key, "\r\n")
-	reply := nc.readline()
-	if strings.Contains(reply, "ERROR") {
-		panic(NewError("Server error"))
+	reply, err := nc.readline()
+	if err != nil {
+		return false, errors.Wrap(err, "Failed readline")
 	}
 	return strings.HasPrefix(reply, "DELETED"), nil
 }
 
 // FlushAll purges the entire cache.
-func (cp *ConnectionPool) FlushAll() (err error) {
-	defer handleError(&err)
+func (cp *ConnectionPool) FlushAll() error {
 	c, err := cp.conn(context.Background())
 	if err != nil {
-		return err
+		return errors.Wrap(err, "Failed cp.conn")
 	}
 	defer func() {
 		cp.putConn(c, err)
@@ -97,11 +94,11 @@ func (cp *ConnectionPool) FlushAll() (err error) {
 	c.setDeadline()
 	// flush_all [delay] [noreply]\r\n
 	for _, s := range cp.servers {
-		nc := c.ncs[s.Aliase]
+		nc := c.ncs[s.Alias]
 		nc.writestrings("flush_all\r\n")
-		response := nc.readline()
-		if !strings.Contains(response, "OK") {
-			panic(NewError(fmt.Sprintf("Error in FlushAll %v", response)))
+		_, err = nc.readline()
+		if err != nil {
+			return errors.Wrap(err, "Failed readline")
 		}
 	}
 	return nil
@@ -171,49 +168,59 @@ func (cp *ConnectionPool) get(command string, keys []string) ([]Item, error) {
 		}
 		var result Item
 		c.ncs[node].writestrings("\r\n")
-		header := c.ncs[node].readline()
+		header, err := c.ncs[node].readline()
+		if err != nil {
+			return results, errors.Wrap(err, "Failed readline")
+		}
 		for strings.HasPrefix(header, "VALUE") {
 			// VALUE <key> <flags> <bytes> [<cas unique>]\r\n
 			chunks := strings.Split(header, " ")
 			if len(chunks) < 4 {
-				panic(NewError("Malformed response: %s", string(header)))
+				return results, fmt.Errorf("Malformed response: %s", string(header))
 			}
 			result.Key = chunks[1]
 			flags64, err := strconv.ParseUint(chunks[2], 10, 16)
 			if err != nil {
-				panic(NewError("%v", err))
+				return results, errors.Wrap(err, "Failed ParseUint")
 			}
 			result.Flags = uint16(flags64)
 			size, err := strconv.ParseUint(chunks[3], 10, 64)
 			if err != nil {
-				panic(NewError("%v", err))
+				return results, errors.Wrap(err, "Failed ParseUint")
 			}
 			if len(chunks) == 5 {
 				result.Cas, err = strconv.ParseUint(chunks[4], 10, 64)
 				if err != nil {
-					panic(NewError("%v", err))
+					return results, errors.Wrap(err, "Failed ParseUint")
 				}
 			}
 			// <data block>\r\n
-			result.Value = c.ncs[node].read(int(size) + 2)[:size]
+			b, err := c.ncs[node].read(int(size) + 2)
+			if err != nil {
+				return results, errors.Wrap(err, "Failed read")
+			}
+			result.Value = b[:size]
 			results = append(results, result)
-			header = c.ncs[node].readline()
+			header, err = c.ncs[node].readline()
+			if err != nil {
+				return results, errors.Wrap(err, "Failed readline")
+			}
 		}
 		if !strings.HasPrefix(header, "END") {
-			panic(NewError("Malformed response: %s", string(header)))
+			return results, fmt.Errorf("Malformed response: %s", string(header))
 		}
 	}
 	return results, nil
 }
 
-func (cp *ConnectionPool) store(command, key string, flags uint16, value []byte, cas uint64) (stored bool) {
+func (cp *ConnectionPool) store(command, key string, flags uint16, value []byte, cas uint64) (stored bool, err error) {
 	if len(value) > 1000000 {
-		return false
+		return false, ErrBadRequest
 	}
 
 	c, err := cp.conn(context.Background())
 	if err != nil {
-		return false
+		return false, errors.Wrap(err, "Failed cp.conn")
 	}
 	defer func() {
 		cp.putConn(c, err)
@@ -223,7 +230,7 @@ func (cp *ConnectionPool) store(command, key string, flags uint16, value []byte,
 	c.setDeadline()
 	node, _ := c.hashRing.GetNode(key)
 	nc := c.ncs[node]
-	// <command name> <key> <flags> <exptime> <bytes> [noreply]\r\n
+	// <command name> <key> <flags> <exptime> <bytes> noreply\r\n
 	nc.writestrings(command, " ", key, " ")
 	nc.write(strconv.AppendUint(nil, uint64(flags), 10))
 	nc.writestring(" ")
@@ -238,9 +245,13 @@ func (cp *ConnectionPool) store(command, key string, flags uint16, value []byte,
 	// <data block>\r\n
 	nc.write(value)
 	nc.writestring("\r\n")
-	reply := nc.readline()
-	if strings.Contains(reply, "ERROR") {
-		panic(NewError("Server error"))
+	reply, err := nc.readline()
+	if err != nil {
+		return false, errors.Wrap(err, "Failed readline")
 	}
-	return strings.HasPrefix(reply, "STORED")
+	stored = strings.HasPrefix(reply, "STORED")
+	if !stored {
+		return false, errors.Wrap(ErrServer, "Failed HasPrefix")
+	}
+	return
 }

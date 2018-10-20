@@ -2,13 +2,13 @@ package memcached
 
 import (
 	"bufio"
-	"errors"
 	"fmt"
 	"io"
 	"net"
 	"sync"
 	"time"
 
+	"github.com/pkg/errors"
 	"github.com/serialx/hashring"
 )
 
@@ -66,12 +66,13 @@ func (c *conn) expired(timeout time.Duration) bool {
 	return c.createdAt.Add(timeout).Before(time.Now())
 }
 
-func (c *conn) setDeadline() {
+func (c *conn) setDeadline() error {
 	for i := range c.ncs {
 		if err := c.ncs[i].Conn.SetDeadline(time.Now().Add(c.cp.connectTimeout)); err != nil {
-			panic(NewError("%s", err))
+			return errors.Wrap(err, "Failed SetDeadLine")
 		}
 	}
+	return nil
 }
 
 func (nc *nc) writestrings(strs ...string) {
@@ -80,40 +81,46 @@ func (nc *nc) writestrings(strs ...string) {
 	}
 }
 
-func (nc *nc) writestring(s string) {
+func (nc *nc) writestring(s string) error {
 	if _, err := nc.buffered.WriteString(s); err != nil {
-		panic(NewError("%s", err))
+		return errors.Wrap(err, "Failed buffered.WriteString")
 	}
+	return nil
 }
 
-func (nc *nc) write(b []byte) {
+func (nc *nc) write(b []byte) error {
 	if _, err := nc.buffered.Write(b); err != nil {
-		panic(NewError("%s", err))
+		return errors.Wrap(err, "Failed buffered,Write")
 	}
+	return nil
 }
 
-func (nc *nc) flush() {
-	if err := nc.buffered.Flush(); err != nil {
-		panic(NewError("%s", err))
-	}
+func (nc *nc) flush() error {
+	err := nc.buffered.Flush()
+	return errors.Wrap(err, "Failed buffered.Flush")
 }
 
-func (nc *nc) readline() string {
-	nc.flush()
+func (nc *nc) readline() (string, error) {
+	if err := nc.flush(); err != nil {
+		return "", errors.Wrap(err, "Failed flush")
+	}
+
 	l, isPrefix, err := nc.buffered.ReadLine()
 	if isPrefix || err != nil {
-		panic(NewError("Prefix: %v, %s", isPrefix, err))
+		return "", errors.Wrap(err, "Failed bufferd.ReadLine")
 	}
-	return string(l)
+	return string(l), nil
 }
 
-func (nc *nc) read(count int) []byte {
-	nc.flush()
+func (nc *nc) read(count int) ([]byte, error) {
+	if err := nc.flush(); err != nil {
+		return []byte{}, errors.Wrap(err, "Failed flush")
+	}
 	b := make([]byte, count)
 	if _, err := io.ReadFull(nc.buffered, b); err != nil {
-		panic(NewError("%s", err))
+		return b, errors.Wrap(err, "Failed ReadFull")
 	}
-	return b
+	return b, nil
 }
 
 // Error is the error from CacheService.
@@ -128,10 +135,4 @@ func NewError(format string, args ...interface{}) Error {
 
 func (merr Error) Error() string {
 	return merr.Message
-}
-
-func handleError(err *error) {
-	if x := recover(); x != nil {
-		*err = x.(Error)
-	}
 }

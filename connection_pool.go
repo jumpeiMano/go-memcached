@@ -15,11 +15,15 @@ import (
 
 const connRequestQueueSize = 1000000
 
+const (
+	defaultConnectTimeout = 1 * time.Second
+	defaultPollTimeout    = 1 * time.Second
+)
+
 // ConnectionPool struct
 type ConnectionPool struct {
 	servers        Servers
 	prefix         string
-	noreply        bool
 	hashFunc       int
 	connectTimeout time.Duration
 	pollTimeout    time.Duration
@@ -41,16 +45,16 @@ type Servers []Server
 func (ss *Servers) getNodes() []string {
 	nodes := make([]string, len(*ss))
 	for i, s := range *ss {
-		nodes[i] = s.Aliase
+		nodes[i] = s.Alias
 	}
 	return nodes
 }
 
 // Server is the server's info of memcahced.
 type Server struct {
-	Host   string
-	Port   int
-	Aliase string
+	Host  string
+	Port  int
+	Alias string
 }
 
 func (s *Server) getAddr() string {
@@ -67,13 +71,14 @@ type connRequest struct {
 }
 
 // New create ConnectionPool
-func New(servers Servers, noreply bool, prefix string) (cp *ConnectionPool) {
+func New(servers Servers, prefix string) (cp *ConnectionPool) {
 	cp = new(ConnectionPool)
 	cp.servers = servers
 	cp.prefix = prefix
-	cp.noreply = noreply
 	cp.openerCh = make(chan struct{}, connRequestQueueSize)
 	cp.connRequests = make(map[uint64]chan connRequest)
+	cp.connectTimeout = defaultConnectTimeout
+	cp.pollTimeout = defaultPollTimeout
 
 	go cp.opener()
 
@@ -275,10 +280,10 @@ func (cp *ConnectionPool) newConn() (*conn, error) {
 			return nil, err
 		}
 		_nc.buffered = bufio.ReadWriter{
-			Reader: bufio.NewReader(_nc),
-			Writer: bufio.NewWriter(_nc),
+			Reader: bufio.NewReader(&_nc),
+			Writer: bufio.NewWriter(&_nc),
 		}
-		c.ncs[s.Aliase] = &_nc
+		c.ncs[s.Alias] = &_nc
 	}
 	return &c, nil
 }
