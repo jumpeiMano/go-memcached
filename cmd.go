@@ -30,34 +30,34 @@ func (cp *ConnectionPool) Gets(keys ...string) (results []Item, err error) {
 }
 
 // Set set the value with specified cache key.
-func (cp *ConnectionPool) Set(key string, flags uint16, value []byte) (stored bool, err error) {
-	return cp.store("set", key, flags, value, 0)
+func (cp *ConnectionPool) Set(item Item) (stored bool, err error) {
+	return cp.store("set", item)
 }
 
 // Add store the value only if it does not already exist.
-func (cp *ConnectionPool) Add(key string, flags uint16, value []byte) (stored bool, err error) {
-	return cp.store("add", key, flags, value, 0)
+func (cp *ConnectionPool) Add(item Item) (stored bool, err error) {
+	return cp.store("add", item)
 }
 
 // Replace replaces the value, only if the value already exists,
 // for the specified cache key.
-func (cp *ConnectionPool) Replace(key string, flags uint16, value []byte) (stored bool, err error) {
-	return cp.store("replace", key, flags, value, 0)
+func (cp *ConnectionPool) Replace(item Item) (stored bool, err error) {
+	return cp.store("replace", item)
 }
 
 // Append appends the value after the last bytes in an existing item.
-func (cp *ConnectionPool) Append(key string, flags uint16, value []byte) (stored bool, err error) {
-	return cp.store("append", key, flags, value, 0)
+func (cp *ConnectionPool) Append(item Item) (stored bool, err error) {
+	return cp.store("append", item)
 }
 
 // Prepend prepends the value before existing value.
-func (cp *ConnectionPool) Prepend(key string, flags uint16, value []byte) (stored bool, err error) {
-	return cp.store("prepend", key, flags, value, 0)
+func (cp *ConnectionPool) Prepend(item Item) (stored bool, err error) {
+	return cp.store("prepend", item)
 }
 
 // Cas stores the value only if no one else has updated the data since you read it last.
-func (cp *ConnectionPool) Cas(key string, flags uint16, value []byte, cas uint64) (stored bool, err error) {
-	return cp.store("cas", key, flags, value, cas)
+func (cp *ConnectionPool) Cas(item Item, cas uint64) (stored bool, err error) {
+	return cp.store("cas", item)
 }
 
 // Delete delete the value for the specified cache key.
@@ -213,8 +213,8 @@ func (cp *ConnectionPool) get(command string, keys []string) ([]Item, error) {
 	return results, nil
 }
 
-func (cp *ConnectionPool) store(command, key string, flags uint16, value []byte, cas uint64) (stored bool, err error) {
-	if len(value) > 1000000 {
+func (cp *ConnectionPool) store(command string, item Item) (stored bool, err error) {
+	if len(item.Value) > 1000000 {
 		return false, ErrBadRequest
 	}
 
@@ -228,22 +228,22 @@ func (cp *ConnectionPool) store(command, key string, flags uint16, value []byte,
 
 	c.reset()
 	c.setDeadline()
-	node, _ := c.hashRing.GetNode(key)
+	node, _ := c.hashRing.GetNode(item.Key)
 	nc := c.ncs[node]
 	// <command name> <key> <flags> <exptime> <bytes> noreply\r\n
-	nc.writestrings(command, " ", key, " ")
-	nc.write(strconv.AppendUint(nil, uint64(flags), 10))
+	nc.writestrings(command, " ", item.Key, " ")
+	nc.write(strconv.AppendUint(nil, uint64(item.Flags), 10))
 	nc.writestring(" ")
-	nc.write(strconv.AppendUint(nil, uint64(cp.pollTimeout), 10))
+	nc.write(strconv.AppendUint(nil, uint64(item.Exp), 10))
 	nc.writestring(" ")
-	nc.write(strconv.AppendInt(nil, int64(len(value)), 10))
-	if cas != 0 {
+	nc.write(strconv.AppendInt(nil, int64(len(item.Value)), 10))
+	if item.Cas != 0 {
 		nc.writestring(" ")
-		nc.write(strconv.AppendUint(nil, cas, 10))
+		nc.write(strconv.AppendUint(nil, item.Cas, 10))
 	}
 	nc.writestring("\r\n")
 	// <data block>\r\n
-	nc.write(value)
+	nc.write(item.Value)
 	nc.writestring("\r\n")
 	reply, err := nc.readline()
 	if err != nil {
