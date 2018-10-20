@@ -14,7 +14,7 @@ import (
 
 type conn struct {
 	cp *ConnectionPool
-	sync.Mutex
+	sync.RWMutex
 	hashRing  *hashring.HashRing
 	ncs       map[string]*nc
 	createdAt time.Time

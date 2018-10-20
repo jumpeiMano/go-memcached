@@ -23,7 +23,7 @@ type ConnectionPool struct {
 	hashFunc       int
 	connectTimeout time.Duration
 	pollTimeout    time.Duration
-	mu             sync.Mutex
+	mu             sync.RWMutex
 	freeConns      []*conn
 	numOpen        int
 	openerCh       chan struct{}
@@ -293,6 +293,7 @@ func (cp *ConnectionPool) SetConnMaxLifetime(d time.Duration) {
 		d = 0
 	}
 	cp.mu.Lock()
+	defer cp.mu.Unlock()
 	// wake cleaner up when lifetime is shortened.
 	if d > 0 && d < cp.maxLifetime && cp.cleanerCh != nil {
 		select {
@@ -302,7 +303,6 @@ func (cp *ConnectionPool) SetConnMaxLifetime(d time.Duration) {
 	}
 	cp.maxLifetime = d
 	cp.startCleanerLocked()
-	cp.mu.Unlock()
 }
 
 // SetConnectTimeout sets the timeout of connect to memcached server.
