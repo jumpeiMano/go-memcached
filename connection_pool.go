@@ -1,16 +1,14 @@
 package memcached
 
 import (
-	"bufio"
 	"context"
 	"fmt"
 	"log"
-	"net"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/serialx/hashring"
+	"github.com/pkg/errors"
 )
 
 const connRequestQueueSize = 1000000
@@ -27,6 +25,7 @@ type ConnectionPool struct {
 	connectTimeout time.Duration
 	pollTimeout    time.Duration
 	noreply        bool
+	failover       bool
 	mu             sync.RWMutex
 	freeConns      []*conn
 	numOpen        int
@@ -45,10 +44,7 @@ type Servers []Server
 func (ss *Servers) getAliases() []string {
 	nodes := make([]string, len(*ss))
 	for i, s := range *ss {
-		nodes[i] = s.Alias
-		if s.Alias == "" {
-			nodes[i] = s.getAddr()
-		}
+		nodes[i] = s.getAlias()
 	}
 	return nodes
 }
@@ -66,6 +62,13 @@ func (s *Server) getAddr() string {
 		port = DefaultPort
 	}
 	return fmt.Sprintf("%s:%d", s.Host, port)
+}
+
+func (s *Server) getAlias() string {
+	if s.Alias == "" {
+		return s.getAddr()
+	}
+	return s.Alias
 }
 
 type connRequest struct {
@@ -123,7 +126,7 @@ func (cp *ConnectionPool) openNewConnection() {
 		cp.mu.Unlock()
 		return
 	}
-	c, err := cp.newConn()
+	c, err := newConn(cp)
 	if err != nil {
 		cp.mu.Lock()
 		defer cp.mu.Unlock()
@@ -143,7 +146,7 @@ func (cp *ConnectionPool) openNewConnection() {
 
 func (cp *ConnectionPool) putConn(c *conn, err error) error {
 	cp.mu.Lock()
-	if err == ErrBadConn || !cp.putConnLocked(c, nil) {
+	if errors.Cause(err) == ErrBadConn || !cp.putConnLocked(c, nil) {
 		cp.mu.Unlock()
 		c.close()
 		return err
@@ -182,7 +185,7 @@ func (cp *ConnectionPool) conn(ctx context.Context) (*conn, error) {
 	if err == nil {
 		return cn, nil
 	}
-	if err == ErrBadConn {
+	if errors.Cause(err) == ErrBadConn {
 		return cp._conn(ctx, false)
 	}
 	return cn, err
@@ -250,7 +253,7 @@ func (cp *ConnectionPool) _conn(ctx context.Context, useFreeConn bool) (*conn, e
 
 	cp.numOpen++
 	cp.mu.Unlock()
-	newCn, err := cp.newConn()
+	newCn, err := newConn(cp)
 	if err != nil {
 		cp.mu.Lock()
 		defer cp.mu.Unlock()
@@ -259,36 +262,6 @@ func (cp *ConnectionPool) _conn(ctx context.Context, useFreeConn bool) (*conn, e
 		return nil, err
 	}
 	return newCn, nil
-}
-
-func (cp *ConnectionPool) newConn() (*conn, error) {
-	var network string
-	ls := len(cp.servers)
-	c := conn{
-		cp:        cp,
-		hashRing:  hashring.New(cp.servers.getAliases()),
-		ncs:       make(map[string]*nc, ls),
-		createdAt: time.Now(),
-	}
-	for _, s := range cp.servers {
-		if strings.Contains(s.Host, "/") {
-			network = "unix"
-		} else {
-			network = "tcp"
-		}
-		var _nc nc
-		var err error
-		_nc.Conn, err = net.DialTimeout(network, s.getAddr(), cp.connectTimeout)
-		if err != nil {
-			return nil, err
-		}
-		_nc.buffered = bufio.ReadWriter{
-			Reader: bufio.NewReader(&_nc),
-			Writer: bufio.NewWriter(&_nc),
-		}
-		c.ncs[s.Alias] = &_nc
-	}
-	return &c, nil
 }
 
 // SetConnMaxLifetime sets the maximum amount of time a connection may be reused.
@@ -339,6 +312,13 @@ func (cp *ConnectionPool) SetNoreply(noreply bool) {
 	cp.mu.Lock()
 	defer cp.mu.Unlock()
 	cp.noreply = noreply
+}
+
+// SetFailover is used to specify whether to use the failover option.
+func (cp *ConnectionPool) SetFailover(failover bool) {
+	cp.mu.Lock()
+	defer cp.mu.Unlock()
+	cp.failover = failover
 }
 
 func (cp *ConnectionPool) needStartCleaner() bool {

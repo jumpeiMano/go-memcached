@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"strings"
 	"sync"
 	"time"
 
@@ -23,6 +24,7 @@ type conn struct {
 
 type nc struct {
 	net.Conn
+	cp       *ConnectionPool
 	count    int
 	buffered bufio.ReadWriter
 }
@@ -44,6 +46,43 @@ var (
 	ErrMemcachedClosed = errors.New("memcached is closed")
 	ErrBadConn         = errors.New("bad conn")
 )
+
+func newConn(cp *ConnectionPool) (*conn, error) {
+	var network string
+	ls := len(cp.servers)
+	c := conn{
+		cp:        cp,
+		hashRing:  hashring.New(cp.servers.getAliases()),
+		ncs:       make(map[string]*nc, ls),
+		createdAt: time.Now(),
+	}
+	for _, s := range cp.servers {
+		if strings.Contains(s.Host, "/") {
+			network = "unix"
+		} else {
+			network = "tcp"
+		}
+		_nc := nc{cp: cp}
+		var err error
+		_nc.Conn, err = net.DialTimeout(network, s.getAddr(), cp.connectTimeout)
+		if err != nil {
+			if !cp.failover {
+				return nil, err
+			}
+			c.hashRing = c.hashRing.RemoveNode(s.getAlias())
+			continue
+		}
+		if tcpconn, ok := _nc.Conn.(*net.TCPConn); ok {
+			tcpconn.SetKeepAlive(true)
+		}
+		_nc.buffered = bufio.ReadWriter{
+			Reader: bufio.NewReader(&_nc),
+			Writer: bufio.NewWriter(&_nc),
+		}
+		c.ncs[s.Alias] = &_nc
+	}
+	return &c, nil
+}
 
 func (c *conn) reset() {
 	for node := range c.ncs {
@@ -97,8 +136,10 @@ func (nc *nc) write(b []byte) error {
 }
 
 func (nc *nc) flush() error {
-	err := nc.buffered.Flush()
-	return errors.Wrap(err, "Failed buffered.Flush")
+	if err := nc.buffered.Flush(); err != nil {
+		return errors.Wrapf(ErrBadConn, "Failed buffered.Flush: %+v", err)
+	}
+	return nil
 }
 
 func (nc *nc) readline() (string, error) {
@@ -108,7 +149,7 @@ func (nc *nc) readline() (string, error) {
 
 	l, isPrefix, err := nc.buffered.ReadLine()
 	if isPrefix || err != nil {
-		return "", errors.Wrap(err, "Failed bufferd.ReadLine")
+		return "", errors.Wrapf(ErrBadConn, "Failed bufferd.ReadLine: %+v", err)
 	}
 	return string(l), nil
 }
@@ -119,7 +160,7 @@ func (nc *nc) read(count int) ([]byte, error) {
 	}
 	b := make([]byte, count)
 	if _, err := io.ReadFull(nc.buffered, b); err != nil {
-		return b, errors.Wrap(err, "Failed ReadFull")
+		return b, errors.Wrapf(ErrBadConn, "Failed ReadFull: %+v", err)
 	}
 	return b, nil
 }

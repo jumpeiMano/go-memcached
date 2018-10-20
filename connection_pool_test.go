@@ -37,10 +37,11 @@ func TestMain(m *testing.M) {
 		},
 	}
 	cp = New(ss, "cache#")
+	cp.SetConnMaxOpen(100)
+	cp.SetFailover(true)
 	if err := cp.FlushAll(); err != nil {
 		log.Fatalf("Failed FlushAll: %+v", err)
 	}
-	cp.SetConnMaxOpen(100)
 	code := m.Run()
 	cp.Close()
 	os.Exit(code)

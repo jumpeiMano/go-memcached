@@ -283,7 +283,7 @@ func TestStats(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Failed Stats: %+v", err)
 		}
-		assert.Len(t, resultMap, len(cp.servers))
+		assert.NotEmpty(t, resultMap)
 	}
 	test("")
 	test("items")
