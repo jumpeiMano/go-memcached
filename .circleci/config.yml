@@ -38,7 +38,7 @@ jobs:
       - run:
           name: Wait for memcached
           command: |
-            sleep(10)
+            sleep 10
       - run: make test
 
 workflows:
