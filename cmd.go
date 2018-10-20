@@ -28,7 +28,9 @@ func (cp *ConnectionPool) GetOrSet(key string, cb func(key string) (*Item, error
 		return nil, errors.Wrap(err, "Failed Get")
 	}
 	if len(items) > 0 {
-		return items[0], nil
+		for _, item := range items {
+			return item, nil
+		}
 	}
 	item, err := cb(key)
 	if err != nil {
@@ -36,6 +38,45 @@ func (cp *ConnectionPool) GetOrSet(key string, cb func(key string) (*Item, error
 	}
 	_, err = cp.Set(item)
 	return item, errors.Wrap(err, "Failed Set")
+}
+
+// GetOrSetMulti gets from memcached, and if no hit, Set value gotten by callback, and return the value
+func (cp *ConnectionPool) GetOrSetMulti(keys []string, cb func(keys []string) ([]*Item, error)) ([]*Item, error) {
+	items, err := cp.Get(keys...)
+	if err != nil {
+		return []*Item{}, errors.Wrap(err, "Failed Get")
+	}
+	gotNum := len(items)
+	hitKeys := make([]string, gotNum)
+	gotMap := make(map[string]struct{}, gotNum)
+	for i, item := range items {
+		hitKeys[i] = item.Key
+		gotMap[item.Key] = struct{}{}
+	}
+	remainKeys := make([]string, len(keys)-gotNum)
+	var i int
+	for _, key := range keys {
+		if _, ok := gotMap[key]; !ok {
+			remainKeys[i] = key
+			i++
+		}
+	}
+	if len(remainKeys) == 0 {
+		return items, nil
+	}
+
+	cbItems, err := cb(remainKeys)
+	if err != nil {
+		return []*Item{}, errors.Wrap(err, "Failed cb")
+	}
+	if len(cbItems) == 0 {
+		return items, nil
+	}
+	if _, err = cp.Set(cbItems...); err != nil {
+		return items, errors.Wrap(err, "Failed Set")
+	}
+	items = append(items, cbItems...)
+	return items, nil
 }
 
 // Gets returns cached data for given keys, it is an alternative Get api

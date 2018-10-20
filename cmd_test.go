@@ -30,12 +30,29 @@ func TestGetOrSet(t *testing.T) {
 			return &Item{Key: key, Value: []byte(`{"get_or_set": 2}`)}, nil
 		})
 		if err != nil {
-			t.Fatalf("Failed Get: %+v", err)
+			t.Fatalf("Failed GetOrSet: %+v", err)
 		}
 		assert.Equal(t, eitem, item)
 	}
 	test("GetOrSet_1", &Item{Key: "GetOrSet_1", Value: []byte(`{"get_or_set": 1}`)})
 	test("GetOrSet_2", &Item{Key: "GetOrSet_2", Value: []byte(`{"get_or_set": 2}`)})
+}
+
+func TestGetOrSetMulti(t *testing.T) {
+	if _, err := cp.Set(&Item{Key: "GetOrSetM_1", Value: []byte(`{"get_or_set_m": 1}`), Exp: 1}); err != nil {
+		t.Fatalf("Failed Set: %+v", err)
+	}
+	test := func(keys []string, eis []*Item) {
+		items, err := cp.GetOrSetMulti(keys, func(keys []string) ([]*Item, error) {
+			return []*Item{{Key: keys[0], Value: []byte(`{"get_or_set_m": 2}`)}}, nil
+		})
+		if err != nil {
+			t.Fatalf("Failed GetOrSetMulti: %+v", err)
+		}
+		assert.Equal(t, eis, items)
+	}
+	test([]string{"GetOrSetM_1"}, []*Item{{Key: "GetOrSetM_1", Value: []byte(`{"get_or_set_m": 1}`)}})
+	test([]string{"GetOrSetM_2"}, []*Item{{Key: "GetOrSetM_2", Value: []byte(`{"get_or_set_m": 2}`)}})
 }
 
 func TestGets(t *testing.T) {
