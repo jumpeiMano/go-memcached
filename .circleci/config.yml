@@ -28,7 +28,6 @@ workflows:
   build_and_deploy:
     jobs:
       - build:
-          context: fuji-deploy
           filters:
             tags:
               only: /.*/
