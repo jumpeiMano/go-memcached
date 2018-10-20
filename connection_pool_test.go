@@ -47,7 +47,7 @@ func TestMain(m *testing.M) {
 }
 
 func TestConnectionPool_SetConnMaxLifetime(t *testing.T) {
-	lifetime := 1 * time.Second
+	lifetime := 10 * time.Second
 	cp.SetConnMaxLifetime(lifetime)
 	assert.Equal(t, lifetime, cp.maxLifetime)
 }
@@ -59,7 +59,7 @@ func TestConnectionPool_SetConnectTimeout(t *testing.T) {
 }
 
 func TestConnectionPool_SetPollTimeout(t *testing.T) {
-	timeout := 2 * time.Second
+	timeout := 1 * time.Second
 	cp.SetPollTimeout(timeout)
 	assert.Equal(t, timeout, cp.pollTimeout)
 }

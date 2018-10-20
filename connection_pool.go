@@ -24,9 +24,9 @@ const (
 type ConnectionPool struct {
 	servers        Servers
 	prefix         string
-	hashFunc       int
 	connectTimeout time.Duration
 	pollTimeout    time.Duration
+	noreply        bool
 	mu             sync.RWMutex
 	freeConns      []*conn
 	numOpen        int
@@ -332,6 +332,13 @@ func (cp *ConnectionPool) SetConnMaxOpen(maxOpen int) {
 	cp.mu.Lock()
 	defer cp.mu.Unlock()
 	cp.maxOpen = maxOpen
+}
+
+// SetNoreply is used to specify whether to use the noreply option.
+func (cp *ConnectionPool) SetNoreply(noreply bool) {
+	cp.mu.Lock()
+	defer cp.mu.Unlock()
+	cp.noreply = noreply
 }
 
 func (cp *ConnectionPool) needStartCleaner() bool {

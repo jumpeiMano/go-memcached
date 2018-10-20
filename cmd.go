@@ -16,69 +16,111 @@ var (
 )
 
 // Get returns cached data for given keys.
-func (cp *ConnectionPool) Get(keys ...string) (results []Item, err error) {
+func (cp *ConnectionPool) Get(keys ...string) (results []*Item, err error) {
 	results, err = cp.get("get", keys)
 	return
+}
+
+// GetOrSet gets from memcached, and if no hit, Set value gotten by callback, and return the value
+func (cp *ConnectionPool) GetOrSet(key string, cb func(key string) (*Item, error)) (*Item, error) {
+	items, err := cp.Get(key)
+	if err != nil {
+		return nil, errors.Wrap(err, "Failed Get")
+	}
+	if len(items) > 0 {
+		return items[0], nil
+	}
+	item, err := cb(key)
+	if err != nil {
+		return nil, errors.Wrap(err, "Failed cb")
+	}
+	_, err = cp.Set(item)
+	return item, errors.Wrap(err, "Failed Set")
 }
 
 // Gets returns cached data for given keys, it is an alternative Get api
 // for using with CAS. Gets returns a CAS identifier with the item. If
 // the item's CAS value has changed since you Gets'ed it, it will not be stored.
-func (cp *ConnectionPool) Gets(keys ...string) (results []Item, err error) {
+func (cp *ConnectionPool) Gets(keys ...string) (results []*Item, err error) {
 	results, err = cp.get("gets", keys)
 	return
 }
 
 // Set set the value with specified cache key.
-func (cp *ConnectionPool) Set(item Item) (stored bool, err error) {
-	return cp.store("set", item)
+func (cp *ConnectionPool) Set(items ...*Item) (failedKeys []string, err error) {
+	return cp.store("set", items)
 }
 
 // Add store the value only if it does not already exist.
-func (cp *ConnectionPool) Add(item Item) (stored bool, err error) {
-	return cp.store("add", item)
+func (cp *ConnectionPool) Add(items ...*Item) (failedKeys []string, err error) {
+	return cp.store("add", items)
 }
 
 // Replace replaces the value, only if the value already exists,
 // for the specified cache key.
-func (cp *ConnectionPool) Replace(item Item) (stored bool, err error) {
-	return cp.store("replace", item)
+func (cp *ConnectionPool) Replace(items ...*Item) (failedKeys []string, err error) {
+	return cp.store("replace", items)
 }
 
 // Append appends the value after the last bytes in an existing item.
-func (cp *ConnectionPool) Append(item Item) (stored bool, err error) {
-	return cp.store("append", item)
+func (cp *ConnectionPool) Append(items ...*Item) (failedKeys []string, err error) {
+	return cp.store("append", items)
 }
 
 // Prepend prepends the value before existing value.
-func (cp *ConnectionPool) Prepend(item Item) (stored bool, err error) {
-	return cp.store("prepend", item)
+func (cp *ConnectionPool) Prepend(items ...*Item) (failedKeys []string, err error) {
+	return cp.store("prepend", items)
 }
 
 // Cas stores the value only if no one else has updated the data since you read it last.
-func (cp *ConnectionPool) Cas(item Item) (stored bool, err error) {
-	return cp.store("cas", item)
+func (cp *ConnectionPool) Cas(items ...*Item) (failedKeys []string, err error) {
+	return cp.store("cas", items)
 }
 
 // Delete delete the value for the specified cache key.
-func (cp *ConnectionPool) Delete(key string) (deleted bool, err error) {
+func (cp *ConnectionPool) Delete(keys ...string) (failedKeys []string, err error) {
 	c, err := cp.conn(context.Background())
 	if err != nil {
-		return false, err
+		return []string{}, errors.Wrap(err, "Failed cp.conn")
 	}
 	defer func() {
 		cp.putConn(c, err)
 	}()
 
+	c.reset()
 	// delete <key> [<time>] [noreply]\r\n
-	node, _ := c.hashRing.GetNode(key)
-	nc := c.ncs[node]
-	nc.writestrings("delete ", key, "\r\n")
-	reply, err := nc.readline()
-	if err != nil {
-		return false, errors.Wrap(err, "Failed readline")
+	for _, key := range keys {
+		node, _ := c.hashRing.GetNode(key)
+		c.ncs[node].writestrings("delete ", key)
+		if cp.noreply {
+			c.ncs[node].writestring(" noreply")
+			c.ncs[node].writestrings("\r\n")
+			c.ncs[node].count++
+			continue
+		}
+		c.ncs[node].writestrings("\r\n")
+		c.setDeadline()
+		reply, err1 := c.ncs[node].readline()
+		if err1 != nil {
+			return []string{}, errors.Wrap(err1, "Failed readline")
+		}
+		if !strings.HasPrefix(reply, "DELETED") {
+			failedKeys = append(failedKeys, key)
+		}
 	}
-	return strings.HasPrefix(reply, "DELETED"), nil
+	if cp.noreply {
+		for node := range c.ncs {
+			if c.ncs[node].count == 0 {
+				continue
+			}
+			c.setDeadline()
+			err = c.ncs[node].flush()
+			if err != nil {
+				return []string{}, errors.Wrap(err, "Failed flush")
+			}
+		}
+	}
+	return
 }
 
 // FlushAll purges the entire cache.
@@ -104,40 +146,47 @@ func (cp *ConnectionPool) FlushAll() error {
 	return nil
 }
 
-// // Stats returns a list of basic stats.
-// func (cp *ConnectionPool) Stats(argument string) (result []byte, err error) {
-// 	defer handleError(&err)
-// 	c, err := cp.conn(context.Background())
-// 	if err != nil {
-// 		return result, err
-// 	}
-// 	defer func() {
-// 		cp.putConn(c, err)
-// 	}()
-//
-// 	c.setDeadline()
-// 	if argument == "" {
-// 		c.writestrings("stats\r\n")
-// 	} else {
-// 		c.writestrings("stats ", argument, "\r\n")
-// 	}
-// 	c.flush()
-// 	for {
-// 		l := c.readline()
-// 		if strings.HasPrefix(l, "END") {
-// 			break
-// 		}
-// 		if strings.Contains(l, "ERROR") {
-// 			return nil, NewError(l)
-// 		}
-// 		result = append(result, l...)
-// 		result = append(result, '\n')
-// 	}
-// 	return result, err
-// }
-//
-func (cp *ConnectionPool) get(command string, keys []string) ([]Item, error) {
-	var results []Item
+// Stats returns a list of basic stats.
+func (cp *ConnectionPool) Stats(argument string) (resultMap map[string][]byte, err error) {
+	resultMap = map[string][]byte{}
+	c, err := cp.conn(context.Background())
+	if err != nil {
+		return resultMap, errors.Wrap(err, "Failed cp.conn")
+	}
+	defer func() {
+		cp.putConn(c, err)
+	}()
+
+	for node := range c.ncs {
+		if argument == "" {
+			c.ncs[node].writestrings("stats\r\n")
+		} else {
+			c.ncs[node].writestrings("stats ", argument, "\r\n")
+		}
+		c.setDeadline()
+		c.ncs[node].flush()
+		var result []byte
+		for {
+			l, err1 := c.ncs[node].readline()
+			if err1 != nil {
+				return resultMap, errors.Wrap(err1, "Failed readline")
+			}
+			if strings.HasPrefix(l, "END") {
+				break
+			}
+			result = append(result, l...)
+			result = append(result, '\n')
+			if strings.Contains(l, "ERROR") {
+				break
+			}
+		}
+		resultMap[node] = result
+	}
+	return resultMap, err
+}
+
+func (cp *ConnectionPool) get(command string, keys []string) ([]*Item, error) {
+	var results []*Item
 	c, err := cp.conn(context.Background())
 	if err != nil {
 		return results, err
@@ -147,8 +196,7 @@ func (cp *ConnectionPool) get(command string, keys []string) ([]Item, error) {
 	}()
 
 	c.reset()
-	c.setDeadline()
-	results = make([]Item, 0, len(keys))
+	results = make([]*Item, 0, len(keys))
 	if len(keys) == 0 {
 		return results, nil
 	}
@@ -159,6 +207,7 @@ func (cp *ConnectionPool) get(command string, keys []string) ([]Item, error) {
 			c.ncs[node].writestrings(command)
 		}
 		c.ncs[node].writestrings(" ", key)
+		c.ncs[node].writestrings("\r\n")
 		c.ncs[node].count++
 	}
 
@@ -167,7 +216,6 @@ func (cp *ConnectionPool) get(command string, keys []string) ([]Item, error) {
 			continue
 		}
 		var result Item
-		c.ncs[node].writestrings("\r\n")
 		header, err := c.ncs[node].readline()
 		if err != nil {
 			return results, errors.Wrap(err, "Failed readline")
@@ -195,12 +243,13 @@ func (cp *ConnectionPool) get(command string, keys []string) ([]Item, error) {
 				}
 			}
 			// <data block>\r\n
+			c.setDeadline()
 			b, err := c.ncs[node].read(int(size) + 2)
 			if err != nil {
 				return results, errors.Wrap(err, "Failed read")
 			}
 			result.Value = b[:size]
-			results = append(results, result)
+			results = append(results, &result)
 			header, err = c.ncs[node].readline()
 			if err != nil {
 				return results, errors.Wrap(err, "Failed readline")
@@ -213,42 +262,60 @@ func (cp *ConnectionPool) get(command string, keys []string) ([]Item, error) {
 	return results, nil
 }
 
-func (cp *ConnectionPool) store(command string, item Item) (stored bool, err error) {
-	if len(item.Value) > 1000000 {
-		return false, ErrBadRequest
-	}
-
+func (cp *ConnectionPool) store(command string, items []*Item) (failedKeys []string, err error) {
 	c, err := cp.conn(context.Background())
 	if err != nil {
-		return false, errors.Wrap(err, "Failed cp.conn")
+		return []string{}, errors.Wrap(err, "Failed cp.conn")
 	}
 	defer func() {
 		cp.putConn(c, err)
 	}()
 
 	c.reset()
-	c.setDeadline()
-	node, _ := c.hashRing.GetNode(item.Key)
-	nc := c.ncs[node]
-	// <command name> <key> <flags> <exptime> <bytes> noreply\r\n
-	nc.writestrings(command, " ", item.Key, " ")
-	nc.write(strconv.AppendUint(nil, uint64(item.Flags), 10))
-	nc.writestring(" ")
-	nc.write(strconv.AppendUint(nil, uint64(item.Exp), 10))
-	nc.writestring(" ")
-	nc.write(strconv.AppendInt(nil, int64(len(item.Value)), 10))
-	if item.Cas != 0 {
-		nc.writestring(" ")
-		nc.write(strconv.AppendUint(nil, item.Cas, 10))
+	for _, item := range items {
+		node, _ := c.hashRing.GetNode(item.Key)
+		// <command name> <key> <flags> <exptime> <bytes> [noreply]\r\n
+		c.ncs[node].writestrings(command, " ", item.Key, " ")
+		c.ncs[node].write(strconv.AppendUint(nil, uint64(item.Flags), 10))
+		c.ncs[node].writestring(" ")
+		c.ncs[node].write(strconv.AppendUint(nil, uint64(item.Exp), 10))
+		c.ncs[node].writestring(" ")
+		c.ncs[node].write(strconv.AppendInt(nil, int64(len(item.Value)), 10))
+		if item.Cas != 0 {
+			c.ncs[node].writestring(" ")
+			c.ncs[node].write(strconv.AppendUint(nil, item.Cas, 10))
+		}
+		if cp.noreply {
+			c.ncs[node].writestring(" noreply")
+		}
+		c.ncs[node].writestring("\r\n")
+		// <data block>\r\n
+		c.ncs[node].write(item.Value)
+		c.ncs[node].writestring("\r\n")
+		if cp.noreply {
+			c.ncs[node].count++
+			continue
+		}
+		c.setDeadline()
+		reply, err1 := c.ncs[node].readline()
+		if err1 != nil {
+			return []string{}, errors.Wrap(err1, "Failed readline")
+		}
+		if !strings.HasPrefix(reply, "STORED") {
+			failedKeys = append(failedKeys, item.Key)
+		}
 	}
-	nc.writestring("\r\n")
-	// <data block>\r\n
-	nc.write(item.Value)
-	nc.writestring("\r\n")
-	reply, err := nc.readline()
-	if err != nil {
-		return false, errors.Wrap(err, "Failed readline")
+	if cp.noreply {
+		for node := range c.ncs {
+			if c.ncs[node].count == 0 {
+				continue
+			}
+			c.setDeadline()
+			err = c.ncs[node].flush()
+			if err != nil {
+				return []string{}, errors.Wrap(err, "Failed flush")
+			}
+		}
 	}
-	stored = strings.HasPrefix(reply, "STORED")
 	return
 }

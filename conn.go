@@ -69,7 +69,7 @@ func (c *conn) expired(timeout time.Duration) bool {
 
 func (c *conn) setDeadline() error {
 	for i := range c.ncs {
-		if err := c.ncs[i].Conn.SetDeadline(time.Now().Add(c.cp.connectTimeout)); err != nil {
+		if err := c.ncs[i].Conn.SetDeadline(time.Now().Add(c.cp.pollTimeout)); err != nil {
 			return errors.Wrap(err, "Failed SetDeadLine")
 		}
 	}
