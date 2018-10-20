@@ -4,13 +4,13 @@ references:
     working_directory: /go/src/github.com/jumpeiMano/go-memcached
     docker:
       - image: jumpeimano/go-dep-image:1.11
-      - image: jumpeimano/memcached
-      - image: jumpeimano/memcached
-        command: ["-port", "11212:11211"]
-      - image: jumpeimano/memcached
-        command: ["-port", "11213"]
-      - image: jumpeimano/memcached
-        command: ["-port", "11214"]
+      - image: memcached
+      - image: memcached
+        command: ["-p", "11212:11211"]
+      - image: memcached
+        command: ["-p", "11213:11211"]
+      - image: memcached
+        command: ["-p", "11214:11211"]
   restore_vendor_cache: &restore_vendor_cache
     restore_cache:
       key: vendor-cache-{{ .Branch }}-{{ checksum "Gopkg.lock" }}
