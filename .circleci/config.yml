@@ -6,7 +6,7 @@ references:
       - image: jumpeimano/go-dep-image:1.11
       - image: jumpeimano/memcached
       - image: jumpeimano/memcached
-        command: ["-port", "11212"]
+        command: ["-port", "11212:11211"]
       - image: jumpeimano/memcached
         command: ["-port", "11213"]
       - image: jumpeimano/memcached
