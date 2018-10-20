@@ -12,22 +12,22 @@ var (
 func TestMain(m *testing.M) {
 	ss := []Server{
 		{
-			Host:  "localhost",
+			Host:  "127.0.0.1",
 			Port:  11211,
 			Alias: "s1",
 		},
 		{
-			Host:  "localhost",
+			Host:  "127.0.0.1",
 			Port:  11212,
 			Alias: "s2",
 		},
 		{
-			Host:  "localhost",
+			Host:  "127.0.0.1",
 			Port:  11213,
 			Alias: "s3",
 		},
 		{
-			Host:  "localhost",
+			Host:  "127.0.0.1",
 			Port:  11214,
 			Alias: "s4",
 		},
