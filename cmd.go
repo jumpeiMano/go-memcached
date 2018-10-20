@@ -9,12 +9,6 @@ import (
 	"github.com/pkg/errors"
 )
 
-// errors
-var (
-	ErrBadRequest = errors.New("Bad Request")
-	ErrServer     = errors.New("Server Error")
-)
-
 // Get returns cached data for given keys.
 func (cp *ConnectionPool) Get(keys ...string) (results []*Item, err error) {
 	results, err = cp.get("get", keys)
