@@ -35,6 +35,10 @@ jobs:
               fi
       - *save_vendor_cache
       - run: make lint
+      - run:
+          name: Wait for memcached
+          command: |
+            sleep(10)
       - run: make test
 
 workflows:
