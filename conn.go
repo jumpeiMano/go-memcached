@@ -33,6 +33,7 @@ type Item struct {
 	Value []byte
 	Flags uint16
 	Cas   uint64
+	Exp   int
 }
 
 // DefaultPort memcached port
