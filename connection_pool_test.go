@@ -1,8 +1,12 @@
 package memcached
 
 import (
+	"log"
 	"os"
 	"testing"
+	"time"
+
+	"github.com/stretchr/testify/assert"
 )
 
 var (
@@ -33,7 +37,29 @@ func TestMain(m *testing.M) {
 		},
 	}
 	cp = New(ss, "cache#")
+	if err := cp.FlushAll(); err != nil {
+		log.Fatalf("Failed FlushAll: %+v", err)
+	}
+	cp.SetConnMaxOpen(100)
 	code := m.Run()
 	cp.Close()
 	os.Exit(code)
+}
+
+func TestConnectionPool_SetConnMaxLifetime(t *testing.T) {
+	lifetime := 1 * time.Second
+	cp.SetConnMaxLifetime(lifetime)
+	assert.Equal(t, lifetime, cp.maxLifetime)
+}
+
+func TestConnectionPool_SetConnectTimeout(t *testing.T) {
+	timeout := 3 * time.Second
+	cp.SetConnectTimeout(timeout)
+	assert.Equal(t, timeout, cp.connectTimeout)
+}
+
+func TestConnectionPool_SetPollTimeout(t *testing.T) {
+	timeout := 2 * time.Second
+	cp.SetPollTimeout(timeout)
+	assert.Equal(t, timeout, cp.pollTimeout)
 }

@@ -42,10 +42,13 @@ type ConnectionPool struct {
 // Servers are slice of Server.
 type Servers []Server
 
-func (ss *Servers) getNodes() []string {
+func (ss *Servers) getAliases() []string {
 	nodes := make([]string, len(*ss))
 	for i, s := range *ss {
 		nodes[i] = s.Alias
+		if s.Alias == "" {
+			nodes[i] = s.getAddr()
+		}
 	}
 	return nodes
 }
@@ -263,7 +266,7 @@ func (cp *ConnectionPool) newConn() (*conn, error) {
 	ls := len(cp.servers)
 	c := conn{
 		cp:        cp,
-		hashRing:  hashring.New(cp.servers.getNodes()),
+		hashRing:  hashring.New(cp.servers.getAliases()),
 		ncs:       make(map[string]*nc, ls),
 		createdAt: time.Now(),
 	}

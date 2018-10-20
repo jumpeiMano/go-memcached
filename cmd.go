@@ -56,7 +56,7 @@ func (cp *ConnectionPool) Prepend(item Item) (stored bool, err error) {
 }
 
 // Cas stores the value only if no one else has updated the data since you read it last.
-func (cp *ConnectionPool) Cas(item Item, cas uint64) (stored bool, err error) {
+func (cp *ConnectionPool) Cas(item Item) (stored bool, err error) {
 	return cp.store("cas", item)
 }
 
@@ -250,8 +250,5 @@ func (cp *ConnectionPool) store(command string, item Item) (stored bool, err err
 		return false, errors.Wrap(err, "Failed readline")
 	}
 	stored = strings.HasPrefix(reply, "STORED")
-	if !stored {
-		return false, errors.Wrap(ErrServer, "Failed HasPrefix")
-	}
 	return
 }
