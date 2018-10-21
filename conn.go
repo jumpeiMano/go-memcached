@@ -24,9 +24,11 @@ type conn struct {
 
 type nc struct {
 	net.Conn
-	cp       *ConnectionPool
-	count    int
-	buffered bufio.ReadWriter
+	cp               *ConnectionPool
+	count            int
+	buffered         bufio.ReadWriter
+	isAlive          bool
+	nextAliveCheckAt time.Time
 }
 
 // Item gives the cached data.
@@ -48,40 +50,52 @@ var (
 )
 
 func newConn(cp *ConnectionPool) (*conn, error) {
-	var network string
 	ls := len(cp.servers)
-	c := conn{
+	c := &conn{
 		cp:        cp,
 		hashRing:  hashring.New(cp.servers.getAliases()),
 		ncs:       make(map[string]*nc, ls),
 		createdAt: time.Now(),
 	}
 	for _, s := range cp.servers {
-		if strings.Contains(s.Host, "/") {
-			network = "unix"
-		} else {
-			network = "tcp"
-		}
-		_nc := nc{cp: cp}
-		var err error
-		_nc.Conn, err = net.DialTimeout(network, s.getAddr(), cp.connectTimeout)
-		if err != nil {
-			if !cp.failover {
-				return nil, err
-			}
-			c.hashRing = c.hashRing.RemoveNode(s.getAlias())
+		_nc, err := c.newNC(&s)
+		if err == nil {
+			c.ncs[s.Alias] = _nc
 			continue
 		}
-		if tcpconn, ok := _nc.Conn.(*net.TCPConn); ok {
-			tcpconn.SetKeepAlive(true)
+		if !c.cp.failover {
+			return nil, err
 		}
-		_nc.buffered = bufio.ReadWriter{
-			Reader: bufio.NewReader(&_nc),
-			Writer: bufio.NewWriter(&_nc),
+		c.hashRing = c.hashRing.RemoveNode(s.getAlias())
+		c.ncs[s.Alias] = &nc{
+			isAlive:          false,
+			nextAliveCheckAt: time.Now().Add(cp.aliveCheckPeriod),
 		}
-		c.ncs[s.Alias] = &_nc
 	}
-	return &c, nil
+	return c, nil
+}
+
+func (c *conn) checkAlive() {
+	now := time.Now()
+	for _, s := range c.cp.servers {
+		node := s.getAlias()
+		if c.ncs[node] != nil && now.Before(c.ncs[node].nextAliveCheckAt) {
+			continue
+		}
+		if c.ncs[node] == nil ||
+			!c.ncs[node].isAlive ||
+			!c.ncs[node].checkAlive() {
+			_nc, err := c.newNC(&s)
+			c.ncs[node] = _nc
+			if err != nil {
+				c.ncs[node] = &nc{
+					isAlive:          false,
+					nextAliveCheckAt: now.Add(c.cp.aliveCheckPeriod),
+				}
+				c.hashRing = c.hashRing.RemoveNode(node)
+			}
+		}
+	}
 }
 
 func (c *conn) reset() {
@@ -91,8 +105,11 @@ func (c *conn) reset() {
 }
 
 func (c *conn) close() error {
-	for i := range c.ncs {
-		if err := c.ncs[i].Conn.Close(); err != nil {
+	for node := range c.ncs {
+		if !c.ncs[node].isAlive {
+			continue
+		}
+		if err := c.ncs[node].Conn.Close(); err != nil {
 			return err
 		}
 	}
@@ -107,12 +124,45 @@ func (c *conn) expired(timeout time.Duration) bool {
 }
 
 func (c *conn) setDeadline() error {
-	for i := range c.ncs {
-		if err := c.ncs[i].Conn.SetDeadline(time.Now().Add(c.cp.pollTimeout)); err != nil {
+	for node := range c.ncs {
+		if !c.ncs[node].isAlive {
+			continue
+		}
+		if err := c.ncs[node].Conn.SetDeadline(time.Now().Add(c.cp.pollTimeout)); err != nil {
 			return errors.Wrap(err, "Failed SetDeadLine")
 		}
 	}
 	return nil
+}
+
+func (c *conn) newNC(s *Server) (*nc, error) {
+	network := "tcp"
+	if strings.Contains(s.Host, "/") {
+		network = "unix"
+	}
+	_nc := nc{cp: c.cp}
+	var err error
+	_nc.Conn, err = net.DialTimeout(network, s.getAddr(), c.cp.connectTimeout)
+	if err != nil {
+		return nil, errors.Wrap(err, "Failed DialTimeout")
+	}
+	if tcpconn, ok := _nc.Conn.(*net.TCPConn); ok {
+		tcpconn.SetKeepAlive(true)
+		tcpconn.SetKeepAlivePeriod(1 * time.Minute)
+	}
+	_nc.buffered = bufio.ReadWriter{
+		Reader: bufio.NewReader(&_nc),
+		Writer: bufio.NewWriter(&_nc),
+	}
+	_nc.isAlive = true
+	_nc.nextAliveCheckAt = time.Now().Add(c.cp.aliveCheckPeriod)
+	return &_nc, nil
+}
+
+func (nc *nc) checkAlive() bool {
+	nc.writestring("get ping\r\n")
+	_, err := nc.readline()
+	return err == nil
 }
 
 func (nc *nc) writestrings(strs ...string) {
