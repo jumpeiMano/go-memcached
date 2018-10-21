@@ -14,28 +14,30 @@ import (
 const connRequestQueueSize = 1000000
 
 const (
-	defaultConnectTimeout = 1 * time.Second
-	defaultPollTimeout    = 1 * time.Second
+	defaultConnectTimeout   = 1 * time.Second
+	defaultPollTimeout      = 1 * time.Second
+	defaultAliveCheckPeriod = 1 * time.Second
 )
 
 // ConnectionPool struct
 type ConnectionPool struct {
-	servers        Servers
-	prefix         string
-	connectTimeout time.Duration
-	pollTimeout    time.Duration
-	noreply        bool
-	failover       bool
-	mu             sync.RWMutex
-	freeConns      []*conn
-	numOpen        int
-	openerCh       chan struct{}
-	connRequests   map[uint64]chan connRequest
-	nextRequest    uint64
-	maxLifetime    time.Duration // maximum amount of time a connection may be reused
-	maxOpen        int           // maximum amount of connection num. maxOpen <= 0 means unlimited.
-	cleanerCh      chan struct{}
-	closed         bool
+	servers          Servers
+	prefix           string
+	connectTimeout   time.Duration
+	pollTimeout      time.Duration
+	aliveCheckPeriod time.Duration
+	noreply          bool
+	failover         bool
+	mu               sync.RWMutex
+	freeConns        []*conn
+	numOpen          int
+	openerCh         chan struct{}
+	connRequests     map[uint64]chan connRequest
+	nextRequest      uint64
+	maxLifetime      time.Duration // maximum amount of time a connection may be reused
+	maxOpen          int           // maximum amount of connection num. maxOpen <= 0 means unlimited.
+	cleanerCh        chan struct{}
+	closed           bool
 }
 
 // Servers are slice of Server.
@@ -84,6 +86,7 @@ func New(servers Servers, prefix string) (cp *ConnectionPool) {
 	cp.openerCh = make(chan struct{}, connRequestQueueSize)
 	cp.connRequests = make(map[uint64]chan connRequest)
 	cp.connectTimeout = defaultConnectTimeout
+	cp.aliveCheckPeriod = defaultAliveCheckPeriod
 	cp.pollTimeout = defaultPollTimeout
 
 	go cp.opener()
@@ -217,6 +220,7 @@ func (cp *ConnectionPool) _conn(ctx context.Context, useFreeConn bool) (*conn, e
 			c.close()
 			return nil, ErrBadConn
 		}
+		c.checkAlive()
 		return c, nil
 	}
 
@@ -247,6 +251,7 @@ func (cp *ConnectionPool) _conn(ctx context.Context, useFreeConn bool) (*conn, e
 			if !ok {
 				return nil, ErrMemcachedClosed
 			}
+			ret.conn.checkAlive()
 			return ret.conn, ret.err
 		}
 	}
@@ -298,6 +303,13 @@ func (cp *ConnectionPool) SetPollTimeout(timeout time.Duration) {
 	cp.mu.Lock()
 	defer cp.mu.Unlock()
 	cp.pollTimeout = timeout
+}
+
+// SetAliveCheckPeriod sets the period of connection's alive check to memcached server.
+func (cp *ConnectionPool) SetAliveCheckPeriod(period time.Duration) {
+	cp.mu.Lock()
+	defer cp.mu.Unlock()
+	cp.aliveCheckPeriod = period
 }
 
 // SetConnMaxOpen sets the maximum amount of opening connections.

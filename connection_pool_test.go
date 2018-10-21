@@ -39,6 +39,7 @@ func TestMain(m *testing.M) {
 	cp = New(ss, "cache#")
 	cp.SetConnMaxOpen(100)
 	cp.SetFailover(true)
+	cp.SetAliveCheckPeriod(1 * time.Nanosecond)
 	if err := cp.FlushAll(); err != nil {
 		log.Fatalf("Failed FlushAll: %+v", err)
 	}
@@ -63,4 +64,10 @@ func TestConnectionPool_SetPollTimeout(t *testing.T) {
 	timeout := 1 * time.Second
 	cp.SetPollTimeout(timeout)
 	assert.Equal(t, timeout, cp.pollTimeout)
+}
+
+func TestConnectionPool_SetAliveCheckPeriod(t *testing.T) {
+	period := 2 * time.Nanosecond
+	cp.SetAliveCheckPeriod(period)
+	assert.Equal(t, period, cp.aliveCheckPeriod)
 }

@@ -172,6 +172,9 @@ func (cp *ConnectionPool) FlushAll() error {
 	c.setDeadline()
 	// flush_all [delay] [noreply]\r\n
 	for _, nc := range c.ncs {
+		if !nc.isAlive {
+			continue
+		}
 		nc.writestrings("flush_all\r\n")
 		_, err = nc.readline()
 		if err != nil {
@@ -193,6 +196,9 @@ func (cp *ConnectionPool) Stats(argument string) (resultMap map[string][]byte, e
 	}()
 
 	for node := range c.ncs {
+		if !c.ncs[node].isAlive {
+			continue
+		}
 		if argument == "" {
 			c.ncs[node].writestrings("stats\r\n")
 		} else {
