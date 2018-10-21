@@ -54,12 +54,12 @@ func TestConnectionPool_MaybeOpenNewConnections(t *testing.T) {
 	defer _cp.Close()
 	_cp.SetConnMaxOpen(10)
 	_cp.mu.Lock()
-	defer _cp.mu.Unlock()
 	req := make(chan connRequest, 1)
 	reqKey := _cp.nextRequest
 	_cp.nextRequest++
 	_cp.connRequests[reqKey] = req
 	_cp.maybeOpenNewConnections()
+	_cp.mu.Unlock()
 }
 
 func TestConnectionPool_OpenNewConnection(t *testing.T) {
@@ -70,7 +70,9 @@ func TestConnectionPool_OpenNewConnection(t *testing.T) {
 	// already close
 	cpClose := New(ss, "")
 	defer cpClose.Close()
+	cpClose.mu.Lock()
 	cpClose.closed = true
+	cpClose.mu.Unlock()
 	cpClose.openNewConnection()
 }
 
