@@ -6,7 +6,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestGet(t *testing.T) {
+func TestConnectionPool_Get(t *testing.T) {
 	if _, err := cp.Set(&Item{Key: "Get_1", Value: []byte(`{"get": 1}`), Exp: 1}); err != nil {
 		t.Fatalf("Failed Set: %+v", err)
 	}
@@ -21,7 +21,7 @@ func TestGet(t *testing.T) {
 	test("Get_2", []*Item{})
 }
 
-func TestGetOrSet(t *testing.T) {
+func TestConnectionPool_GetOrSet(t *testing.T) {
 	if _, err := cp.Set(&Item{Key: "GetOrSet_1", Value: []byte(`{"get_or_set": 1}`), Exp: 1}); err != nil {
 		t.Fatalf("Failed Set: %+v", err)
 	}
@@ -38,7 +38,7 @@ func TestGetOrSet(t *testing.T) {
 	test("GetOrSet_2", &Item{Key: "GetOrSet_2", Value: []byte(`{"get_or_set": 2}`)})
 }
 
-func TestGetOrSetMulti(t *testing.T) {
+func TestConnectionPool_GetOrSetMulti(t *testing.T) {
 	if _, err := cp.Set(&Item{Key: "GetOrSetM_1", Value: []byte(`{"get_or_set_m": 1}`), Exp: 1}); err != nil {
 		t.Fatalf("Failed Set: %+v", err)
 	}
@@ -55,7 +55,7 @@ func TestGetOrSetMulti(t *testing.T) {
 	test([]string{"GetOrSetM_2"}, []*Item{{Key: "GetOrSetM_2", Value: []byte(`{"get_or_set_m": 2}`)}})
 }
 
-func TestGets(t *testing.T) {
+func TestConnectionPool_Gets(t *testing.T) {
 	if _, err := cp.Set(&Item{Key: "Gets_1", Value: []byte(`{"gets": 1}`), Exp: 1}); err != nil {
 		t.Fatalf("Failed Set: %+v", err)
 	}
@@ -74,7 +74,7 @@ func TestGets(t *testing.T) {
 	test("Gets_2", [][]byte{})
 }
 
-func TestSet(t *testing.T) {
+func TestConnectionPool_Set(t *testing.T) {
 	test := func(item *Item) {
 		failedKeys, err := cp.Set(item)
 		if err != nil {
@@ -88,7 +88,7 @@ func TestSet(t *testing.T) {
 	test(&Item{Key: "set_5", Value: []byte(`{"id": 1, "test": "ok"}`), Exp: 1})
 }
 
-func TestAdd(t *testing.T) {
+func TestConnectionPool_Add(t *testing.T) {
 	if _, err := cp.Set(&Item{Key: "Add_1", Value: []byte(`{"add": 1}`), Exp: 1}); err != nil {
 		t.Fatalf("Failed Set: %+v", err)
 	}
@@ -112,7 +112,7 @@ func TestAdd(t *testing.T) {
 	test(&Item{Key: "Add_2", Value: []byte(`{"add": 2}`), Exp: 1}, true, [][]byte{[]byte(`{"add": 2}`)})
 }
 
-func TestReplace(t *testing.T) {
+func TestConnectionPool_Replace(t *testing.T) {
 	if _, err := cp.Set(&Item{Key: "Replace_1", Value: []byte(`{"replace": 1}`), Exp: 1}); err != nil {
 		t.Fatalf("Failed Set: %+v", err)
 	}
@@ -136,7 +136,7 @@ func TestReplace(t *testing.T) {
 	test(&Item{Key: "Replace_2", Value: []byte(`{"replace": 2}`), Exp: 1}, false, [][]byte{})
 }
 
-func TestAppend(t *testing.T) {
+func TestConnectionPool_Append(t *testing.T) {
 	if _, err := cp.Set(&Item{Key: "Append_1", Value: []byte(`{"append": 1}`), Exp: 1}); err != nil {
 		t.Fatalf("Failed Set: %+v", err)
 	}
@@ -160,7 +160,7 @@ func TestAppend(t *testing.T) {
 	test(&Item{Key: "Append_2", Value: []byte(`{"append": 2}`), Exp: 1}, false, [][]byte{})
 }
 
-func TestPrepend(t *testing.T) {
+func TestConnectionPool_Prepend(t *testing.T) {
 	if _, err := cp.Set(&Item{Key: "Prepend_1", Value: []byte(`{"prepend": 1}`), Exp: 1}); err != nil {
 		t.Fatalf("Failed Set: %+v", err)
 	}
@@ -184,7 +184,7 @@ func TestPrepend(t *testing.T) {
 	test(&Item{Key: "Prepend_2", Value: []byte(`{"prepend": 2}`), Exp: 1}, false, [][]byte{})
 }
 
-func TestCas(t *testing.T) {
+func TestConnectionPool_Cas(t *testing.T) {
 	if _, err := cp.Set(&Item{Key: "Cas_1", Value: []byte(`{"cas": 1}`), Exp: 1}); err != nil {
 		t.Fatalf("Failed Set: %+v", err)
 	}
@@ -221,7 +221,7 @@ func TestCas(t *testing.T) {
 	test("before", &Item{Key: "Cas_2", Value: []byte(`{"cas": 22}`), Exp: 1}, false, [][]byte{[]byte(`{"cas": 2}update`)})
 }
 
-func TestDelete(t *testing.T) {
+func TestConnectionPool_Delete(t *testing.T) {
 	items := []*Item{
 		{Key: "Delete_1", Value: []byte(`{"delete": 1}`), Exp: 1},
 		{Key: "Delete_2", Value: []byte(`{"delete": 2}`), Exp: 1},
@@ -248,7 +248,7 @@ func TestDelete(t *testing.T) {
 	test([]string{"Delete_1", "Delete_2"}, true, [][]byte{})
 }
 
-func TestDelete_Noreply(t *testing.T) {
+func TestConnectionPool_Delete_Noreply(t *testing.T) {
 	cp.SetNoreply(true)
 	defer cp.SetNoreply(false)
 	items := []*Item{
@@ -277,7 +277,7 @@ func TestDelete_Noreply(t *testing.T) {
 	test([]string{"Delete_N_1", "Delete_N_2"}, true, [][]byte{})
 }
 
-func TestStats(t *testing.T) {
+func TestConnectionPool_Stats(t *testing.T) {
 	test := func(argument string) {
 		resultMap, err := cp.Stats(argument)
 		if err != nil {
