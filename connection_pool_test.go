@@ -1,6 +1,7 @@
 package memcached
 
 import (
+	"context"
 	"log"
 	"os"
 	"testing"
@@ -11,10 +12,7 @@ import (
 
 var (
 	cp *ConnectionPool
-)
-
-func TestMain(m *testing.M) {
-	ss := []Server{
+	ss = []Server{
 		{
 			Host:  "127.0.0.1",
 			Port:  11211,
@@ -36,6 +34,9 @@ func TestMain(m *testing.M) {
 			Alias: "s4",
 		},
 	}
+)
+
+func TestMain(m *testing.M) {
 	cp = New(ss, "cache#")
 	cp.SetConnMaxOpen(100)
 	cp.SetFailover(true)
@@ -46,6 +47,49 @@ func TestMain(m *testing.M) {
 	code := m.Run()
 	cp.Close()
 	os.Exit(code)
+}
+
+func TestConnectionPool_MaybeOpenNewConnections(t *testing.T) {
+	_cp := New(ss, "")
+	defer _cp.Close()
+	_cp.SetConnMaxOpen(10)
+	_cp.mu.Lock()
+	defer _cp.mu.Unlock()
+	req := make(chan connRequest, 1)
+	reqKey := _cp.nextRequest
+	_cp.nextRequest++
+	_cp.connRequests[reqKey] = req
+	_cp.maybeOpenNewConnections()
+}
+
+func TestConnectionPool_OpenNewConnection(t *testing.T) {
+	_cp := New(ss, "")
+	defer _cp.Close()
+	_cp.openNewConnection()
+
+	// already close
+	cpClose := New(ss, "")
+	defer cpClose.Close()
+	cpClose.closed = true
+	cpClose.openNewConnection()
+}
+
+func TestConnectionPool_PutConnLocked(t *testing.T) {
+	_cp := New(ss, "")
+	defer _cp.Close()
+	cn, err := _cp._conn(context.Background(), true)
+	_cp.mu.Lock()
+	_cp.putConnLocked(cn, err)
+	_cp.mu.Unlock()
+
+	cn, err = _cp._conn(context.Background(), true)
+	_cp.mu.Lock()
+	req := make(chan connRequest, 1)
+	reqKey := _cp.nextRequest
+	_cp.nextRequest++
+	_cp.connRequests[reqKey] = req
+	_cp.putConnLocked(cn, err)
+	_cp.mu.Unlock()
 }
 
 func TestConnectionPool_SetConnMaxLifetime(t *testing.T) {
