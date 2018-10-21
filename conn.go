@@ -24,7 +24,6 @@ type conn struct {
 
 type nc struct {
 	net.Conn
-	cp               *ConnectionPool
 	count            int
 	buffered         bufio.ReadWriter
 	isAlive          bool
@@ -53,7 +52,7 @@ func newConn(cp *ConnectionPool) (*conn, error) {
 	ls := len(cp.servers)
 	c := &conn{
 		cp:        cp,
-		hashRing:  hashring.New(cp.servers.getAliases()),
+		hashRing:  hashring.New(cp.servers.getNodeNames()),
 		ncs:       make(map[string]*nc, ls),
 		createdAt: time.Now(),
 	}
@@ -66,7 +65,7 @@ func newConn(cp *ConnectionPool) (*conn, error) {
 		if !c.cp.failover {
 			return nil, err
 		}
-		c.hashRing = c.hashRing.RemoveNode(s.getAlias())
+		c.hashRing = c.hashRing.RemoveNode(s.getNodeName())
 		c.ncs[s.Alias] = &nc{
 			isAlive:          false,
 			nextAliveCheckAt: time.Now().Add(cp.aliveCheckPeriod),
@@ -75,10 +74,10 @@ func newConn(cp *ConnectionPool) (*conn, error) {
 	return c, nil
 }
 
-func (c *conn) checkAlive() {
+func (c *conn) checkAliveAndReconnect() {
 	now := time.Now()
 	for _, s := range c.cp.servers {
-		node := s.getAlias()
+		node := s.getNodeName()
 		if c.ncs[node] != nil && now.Before(c.ncs[node].nextAliveCheckAt) {
 			continue
 		}
@@ -86,8 +85,10 @@ func (c *conn) checkAlive() {
 			!c.ncs[node].isAlive ||
 			!c.ncs[node].checkAlive() {
 			_nc, err := c.newNC(&s)
-			c.ncs[node] = _nc
-			if err != nil {
+			if err == nil {
+				c.ncs[node] = _nc
+				c.hashRing = c.hashRing.AddNode(node)
+			} else {
 				c.ncs[node] = &nc{
 					isAlive:          false,
 					nextAliveCheckAt: now.Add(c.cp.aliveCheckPeriod),
@@ -140,7 +141,7 @@ func (c *conn) newNC(s *Server) (*nc, error) {
 	if strings.Contains(s.Host, "/") {
 		network = "unix"
 	}
-	_nc := nc{cp: c.cp}
+	var _nc nc
 	var err error
 	_nc.Conn, err = net.DialTimeout(network, s.getAddr(), c.cp.connectTimeout)
 	if err != nil {

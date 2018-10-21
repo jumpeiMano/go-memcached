@@ -43,10 +43,10 @@ type ConnectionPool struct {
 // Servers are slice of Server.
 type Servers []Server
 
-func (ss *Servers) getAliases() []string {
+func (ss *Servers) getNodeNames() []string {
 	nodes := make([]string, len(*ss))
 	for i, s := range *ss {
-		nodes[i] = s.getAlias()
+		nodes[i] = s.getNodeName()
 	}
 	return nodes
 }
@@ -66,7 +66,7 @@ func (s *Server) getAddr() string {
 	return fmt.Sprintf("%s:%d", s.Host, port)
 }
 
-func (s *Server) getAlias() string {
+func (s *Server) getNodeName() string {
 	if s.Alias == "" {
 		return s.getAddr()
 	}
@@ -220,7 +220,7 @@ func (cp *ConnectionPool) _conn(ctx context.Context, useFreeConn bool) (*conn, e
 			c.close()
 			return nil, ErrBadConn
 		}
-		c.checkAlive()
+		c.checkAliveAndReconnect()
 		return c, nil
 	}
 
@@ -251,7 +251,7 @@ func (cp *ConnectionPool) _conn(ctx context.Context, useFreeConn bool) (*conn, e
 			if !ok {
 				return nil, ErrMemcachedClosed
 			}
-			ret.conn.checkAlive()
+			ret.conn.checkAliveAndReconnect()
 			return ret.conn, ret.err
 		}
 	}
