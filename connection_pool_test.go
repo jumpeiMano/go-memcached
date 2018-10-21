@@ -51,7 +51,6 @@ func TestMain(m *testing.M) {
 
 func TestConnectionPool_MaybeOpenNewConnections(t *testing.T) {
 	_cp := New(ss, "")
-	defer _cp.Close()
 	_cp.SetConnMaxOpen(10)
 	_cp.mu.Lock()
 	req := make(chan connRequest, 1)
