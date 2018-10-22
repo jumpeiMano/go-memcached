@@ -22,9 +22,7 @@ func (cp *ConnectionPool) GetOrSet(key string, cb func(key string) (*Item, error
 		return nil, errors.Wrap(err, "Failed Get")
 	}
 	if len(items) > 0 {
-		for _, item := range items {
-			return item, nil
-		}
+		return items[0], nil
 	}
 	item, err := cb(key)
 	if err != nil {
