@@ -71,6 +71,9 @@ func newConn(cp *ConnectionPool) (*conn, error) {
 }
 
 func (c *conn) checkAliveAndReconnect() {
+	if c == nil || c.cp.closed {
+		return
+	}
 	now := time.Now()
 	for _, s := range c.cp.servers {
 		node := s.getNodeName()
@@ -194,11 +197,11 @@ func (nc *nc) readline() (string, error) {
 		return "", errors.Wrap(err, "Failed flush")
 	}
 
-	l, isPrefix, err := nc.buffered.ReadLine()
-	if isPrefix || err != nil {
+	l, err := nc.buffered.ReadSlice('\n')
+	if err != nil {
 		return "", errors.Wrapf(ErrBadConn, "Failed bufferd.ReadLine: %+v", err)
 	}
-	return string(l), nil
+	return strings.Replace(string(l), "\r\n", "", -1), nil
 }
 
 func (nc *nc) read(count int) ([]byte, error) {

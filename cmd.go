@@ -45,12 +45,10 @@ func (cp *ConnectionPool) GetOrSetMulti(keys []string, cb func(keys []string) ([
 		hitKeys[i] = item.Key
 		gotMap[item.Key] = struct{}{}
 	}
-	remainKeys := make([]string, len(keys)-gotNum)
-	var i int
+	remainKeys := make([]string, 0, len(keys)-gotNum)
 	for _, key := range keys {
 		if _, ok := gotMap[key]; !ok {
-			remainKeys[i] = key
-			i++
+			remainKeys = append(remainKeys, key)
 		}
 	}
 	if len(remainKeys) == 0 {
@@ -137,6 +135,9 @@ func (cp *ConnectionPool) Delete(keys ...string) (failedKeys []string, err error
 		reply, err1 := c.ncs[node].readline()
 		if err1 != nil {
 			return []string{}, errors.Wrap(err1, "Failed readline")
+		}
+		for strings.HasPrefix(reply, "ERROR") {
+			reply, _ = c.ncs[node].readline()
 		}
 		if !strings.HasPrefix(reply, "DELETED") {
 			failedKeys = append(failedKeys, key)
@@ -341,6 +342,9 @@ func (cp *ConnectionPool) store(command string, items []*Item) (failedKeys []str
 		reply, err1 := c.ncs[node].readline()
 		if err1 != nil {
 			return []string{}, errors.Wrap(err1, "Failed readline")
+		}
+		for strings.HasPrefix(reply, "ERROR") {
+			reply, _ = c.ncs[node].readline()
 		}
 		if !strings.HasPrefix(reply, "STORED") {
 			failedKeys = append(failedKeys, item.Key)
