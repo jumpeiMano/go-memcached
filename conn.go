@@ -2,7 +2,6 @@ package memcached
 
 import (
 	"bufio"
-	"fmt"
 	"io"
 	"net"
 	"strings"
@@ -38,9 +37,6 @@ type Item struct {
 	Cas   uint64
 	Exp   int
 }
-
-// DefaultPort memcached port
-const DefaultPort = 11211
 
 // Error
 var (
@@ -214,18 +210,4 @@ func (nc *nc) read(count int) ([]byte, error) {
 		return b, errors.Wrapf(ErrBadConn, "Failed ReadFull: %+v", err)
 	}
 	return b, nil
-}
-
-// Error is the error from CacheService.
-type Error struct {
-	Message string
-}
-
-// NewError creates a new Error.
-func NewError(format string, args ...interface{}) Error {
-	return Error{fmt.Sprintf(format, args...)}
-}
-
-func (merr Error) Error() string {
-	return merr.Message
 }

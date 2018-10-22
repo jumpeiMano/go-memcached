@@ -14,6 +14,7 @@ import (
 const connRequestQueueSize = 1000000
 
 const (
+	defaultPort             = 11211
 	defaultConnectTimeout   = 1 * time.Second
 	defaultPollTimeout      = 1 * time.Second
 	defaultAliveCheckPeriod = 10 * time.Second
@@ -61,7 +62,7 @@ type Server struct {
 func (s *Server) getAddr() string {
 	port := s.Port
 	if port == 0 {
-		port = DefaultPort
+		port = defaultPort
 	}
 	return fmt.Sprintf("%s:%d", s.Host, port)
 }
