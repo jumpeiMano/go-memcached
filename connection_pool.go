@@ -16,7 +16,7 @@ const connRequestQueueSize = 1000000
 const (
 	defaultConnectTimeout   = 1 * time.Second
 	defaultPollTimeout      = 1 * time.Second
-	defaultAliveCheckPeriod = 1 * time.Second
+	defaultAliveCheckPeriod = 10 * time.Second
 )
 
 // ConnectionPool struct
