@@ -9,6 +9,12 @@ import (
 	"github.com/pkg/errors"
 )
 
+var (
+	ErrNonexistentCommand = errors.New("nonexiststent command error")
+	ErrClient             = errors.New("client error")
+	ErrServer             = errors.New("server error")
+)
+
 // Get returns cached data for given keys.
 func (cp *ConnectionPool) Get(keys ...string) (results []*Item, err error) {
 	results, err = cp.get("get", keys)
@@ -39,10 +45,8 @@ func (cp *ConnectionPool) GetOrSetMulti(keys []string, cb func(keys []string) ([
 		return []*Item{}, errors.Wrap(err, "Failed Get")
 	}
 	gotNum := len(items)
-	hitKeys := make([]string, gotNum)
 	gotMap := make(map[string]struct{}, gotNum)
-	for i, item := range items {
-		hitKeys[i] = item.Key
+	for _, item := range items {
 		gotMap[item.Key] = struct{}{}
 	}
 	remainKeys := make([]string, 0, len(keys)-gotNum)
@@ -135,9 +139,6 @@ func (cp *ConnectionPool) Delete(keys ...string) (failedKeys []string, err error
 		reply, err1 := c.ncs[node].readline()
 		if err1 != nil {
 			return []string{}, errors.Wrap(err1, "Failed readline")
-		}
-		for strings.HasPrefix(reply, "ERROR") {
-			reply, _ = c.ncs[node].readline()
 		}
 		if !strings.HasPrefix(reply, "DELETED") {
 			failedKeys = append(failedKeys, key)
@@ -248,7 +249,6 @@ func (cp *ConnectionPool) get(command string, keys []string) ([]*Item, error) {
 			c.ncs[node].writestrings(command)
 		}
 		c.ncs[node].writestrings(" ", rawkey)
-		c.ncs[node].writestrings("\r\n")
 		c.ncs[node].count++
 	}
 
@@ -256,7 +256,7 @@ func (cp *ConnectionPool) get(command string, keys []string) ([]*Item, error) {
 		if c.ncs[node].count == 0 {
 			continue
 		}
-		var result Item
+		c.ncs[node].writestrings("\r\n")
 		header, err := c.ncs[node].readline()
 		if err != nil {
 			return results, errors.Wrap(err, "Failed readline")
@@ -267,6 +267,7 @@ func (cp *ConnectionPool) get(command string, keys []string) ([]*Item, error) {
 			if len(chunks) < 4 {
 				return results, fmt.Errorf("Malformed response: %s", string(header))
 			}
+			var result Item
 			result.Key = cp.removePrefix(chunks[1])
 			flags64, err := strconv.ParseUint(chunks[2], 10, 16)
 			if err != nil {
@@ -343,9 +344,6 @@ func (cp *ConnectionPool) store(command string, items []*Item) (failedKeys []str
 		if err1 != nil {
 			return []string{}, errors.Wrap(err1, "Failed readline")
 		}
-		for strings.HasPrefix(reply, "ERROR") {
-			reply, _ = c.ncs[node].readline()
-		}
 		if !strings.HasPrefix(reply, "STORED") {
 			failedKeys = append(failedKeys, item.Key)
 		}
@@ -363,4 +361,20 @@ func (cp *ConnectionPool) store(command string, items []*Item) (failedKeys []str
 		}
 	}
 	return
+}
+
+func handleError(s string) error {
+	if !strings.Contains(s, "ERROR") {
+		return nil
+	}
+	if s == "ERROR" {
+		return ErrNonexistentCommand
+	}
+	if strings.HasPrefix(s, "CLIENT_ERROR") {
+		return ErrClient
+	}
+	if strings.HasPrefix(s, "SERVER_ERROR") {
+		return ErrServer
+	}
+	return fmt.Errorf("Error has occured: %s", s)
 }

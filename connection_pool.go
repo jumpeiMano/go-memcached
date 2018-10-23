@@ -150,7 +150,7 @@ func (cp *ConnectionPool) openNewConnection() {
 
 func (cp *ConnectionPool) putConn(c *conn, err error) error {
 	cp.mu.Lock()
-	if errors.Cause(err) == ErrBadConn || !cp.putConnLocked(c, nil) {
+	if errors.Cause(err) == ErrBadConn || errors.Cause(err) == ErrServer || !cp.putConnLocked(c, nil) {
 		cp.mu.Unlock()
 		c.close()
 		return err

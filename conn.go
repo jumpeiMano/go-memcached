@@ -160,9 +160,12 @@ func (c *conn) newNC(s *Server) (*nc, error) {
 }
 
 func (nc *nc) checkAlive() bool {
-	nc.writestring("get ping\r\n")
-	_, err := nc.readline()
-	return err == nil
+	nc.writestring("version\r\n")
+	l, err := nc.readline()
+	if err != nil {
+		return false
+	}
+	return handleError(string(l)) == nil
 }
 
 func (nc *nc) writestrings(strs ...string) {
@@ -201,6 +204,9 @@ func (nc *nc) readline() (string, error) {
 	if err != nil {
 		return "", errors.Wrapf(ErrBadConn, "Failed bufferd.ReadLine: %+v", err)
 	}
+	if err = handleError(string(l)); err != nil {
+		return "", err
+	}
 	return strings.Replace(string(l), "\r\n", "", -1), nil
 }
 
@@ -211,6 +217,9 @@ func (nc *nc) read(count int) ([]byte, error) {
 	b := make([]byte, count)
 	if _, err := io.ReadFull(nc.buffered, b); err != nil {
 		return b, errors.Wrapf(ErrBadConn, "Failed ReadFull: %+v", err)
+	}
+	if err := handleError(string(b)); err != nil {
+		return []byte{}, err
 	}
 	return b, nil
 }

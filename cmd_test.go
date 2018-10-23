@@ -10,15 +10,16 @@ func TestConnectionPool_Get(t *testing.T) {
 	if _, err := cp.Set(&Item{Key: "Get_1", Value: []byte(`{"get": 1}`), Exp: 1}); err != nil {
 		t.Fatalf("Failed Set: %+v", err)
 	}
-	test := func(key string, eis []*Item) {
-		is, err := cp.Get(key)
+	test := func(keys []string, eis []*Item) {
+		is, err := cp.Get(keys...)
 		if err != nil {
 			t.Fatalf("Failed Get: %+v", err)
 		}
 		assert.Equal(t, eis, is)
 	}
-	test("Get_1", []*Item{{Key: "Get_1", Value: []byte(`{"get": 1}`)}})
-	test("Get_2", []*Item{})
+	test([]string{"Get_1"}, []*Item{{Key: "Get_1", Value: []byte(`{"get": 1}`)}})
+	test([]string{"Get_2"}, []*Item{})
+	test([]string{"Get_1", "Get_2"}, []*Item{{Key: "Get_1", Value: []byte(`{"get": 1}`)}})
 }
 
 func TestConnectionPool_GetOrSet(t *testing.T) {
@@ -42,17 +43,41 @@ func TestConnectionPool_GetOrSetMulti(t *testing.T) {
 	if _, err := cp.Set(&Item{Key: "GetOrSetM_1", Value: []byte(`{"get_or_set_m": 1}`), Exp: 1}); err != nil {
 		t.Fatalf("Failed Set: %+v", err)
 	}
-	test := func(keys []string, eis []*Item) {
-		items, err := cp.GetOrSetMulti(keys, func(keys []string) ([]*Item, error) {
-			return []*Item{{Key: keys[0], Value: []byte(`{"get_or_set_m": 2}`)}}, nil
-		})
+	test := func(keys []string, cb func(keys []string) ([]*Item, error), eis []*Item) {
+		items, err := cp.GetOrSetMulti(keys, cb)
 		if err != nil {
 			t.Fatalf("Failed GetOrSetMulti: %+v", err)
 		}
 		assert.Equal(t, eis, items)
 	}
-	test([]string{"GetOrSetM_1"}, []*Item{{Key: "GetOrSetM_1", Value: []byte(`{"get_or_set_m": 1}`)}})
-	test([]string{"GetOrSetM_2"}, []*Item{{Key: "GetOrSetM_2", Value: []byte(`{"get_or_set_m": 2}`)}})
+	test(
+		[]string{"GetOrSetM_1"},
+		func(keys []string) ([]*Item, error) {
+			return []*Item{}, nil
+		},
+		[]*Item{{Key: "GetOrSetM_1", Value: []byte(`{"get_or_set_m": 1}`)}},
+	)
+	test(
+		[]string{"GetOrSetM_1", "GetOrSetM_2"},
+		func(keys []string) ([]*Item, error) {
+			return []*Item{{Key: "GetOrSetM_2", Value: []byte(`{"get_or_set_m": 2}`)}}, nil
+		},
+		[]*Item{{Key: "GetOrSetM_1", Value: []byte(`{"get_or_set_m": 1}`)}, {Key: "GetOrSetM_2", Value: []byte(`{"get_or_set_m": 2}`)}},
+	)
+	test(
+		[]string{"GetOrSetM_1", "GetOrSetM_2", "GetOrSetM_3", "GetOrSetM_4"},
+		func(keys []string) ([]*Item, error) {
+			return []*Item{
+				{Key: "GetOrSetM_3", Value: []byte(`{"get_or_set_m": 3}`)},
+				{Key: "GetOrSetM_4", Value: []byte(`{"get_or_set_m": 4}`)},
+			}, nil
+		},
+		[]*Item{
+			{Key: "GetOrSetM_1", Value: []byte(`{"get_or_set_m": 1}`)},
+			{Key: "GetOrSetM_2", Value: []byte(`{"get_or_set_m": 2}`)},
+			{Key: "GetOrSetM_3", Value: []byte(`{"get_or_set_m": 3}`)},
+			{Key: "GetOrSetM_4", Value: []byte(`{"get_or_set_m": 4}`)},
+		})
 }
 
 func TestConnectionPool_Gets(t *testing.T) {
