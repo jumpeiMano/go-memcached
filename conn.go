@@ -74,6 +74,8 @@ func (c *conn) checkAliveAndReconnect() {
 	if c == nil || c.cp.closed {
 		return
 	}
+	c.Lock()
+	defer c.Unlock()
 	now := time.Now()
 	for _, s := range c.cp.servers {
 		node := s.getNodeName()
@@ -123,14 +125,13 @@ func (c *conn) expired(timeout time.Duration) bool {
 	return c.createdAt.Add(timeout).Before(time.Now())
 }
 
-func (c *conn) setDeadline() error {
-	for node := range c.ncs {
-		if !c.ncs[node].isAlive {
-			continue
-		}
-		if err := c.ncs[node].Conn.SetDeadline(time.Now().Add(c.cp.pollTimeout)); err != nil {
-			return errors.Wrap(err, "Failed SetDeadLine")
-		}
+func (c *conn) setDeadline(node string) error {
+	nc, ok := c.ncs[node]
+	if !ok || !nc.isAlive {
+		return nil
+	}
+	if err := nc.SetDeadline(time.Now().Add(c.cp.pollTimeout)); err != nil {
+		return errors.Wrap(err, "Failed SetDeadLine")
 	}
 	return nil
 }

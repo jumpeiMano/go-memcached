@@ -100,17 +100,26 @@ func TestConnectionPool_Gets(t *testing.T) {
 }
 
 func TestConnectionPool_Set(t *testing.T) {
-	test := func(item *Item) {
-		failedKeys, err := cp.Set(item)
+	test := func(items []*Item) {
+		failedKeys, err := cp.Set(items...)
 		if err != nil {
 			t.Fatalf("Failed Set: %+v", err)
 		}
 		assert.Equal(t, true, len(failedKeys) < 1)
 	}
-	test(&Item{Key: "set_1", Value: []byte(`{"id": 1, "test": "ok"}`), Exp: 1})
-	test(&Item{Key: "set_2", Value: []byte(`{"id": 1, "test": "ok"}`), Exp: 1})
-	test(&Item{Key: "set_3", Value: []byte(`{"id": 1, "test": "ok"}`), Exp: 1})
-	test(&Item{Key: "set_5", Value: []byte(`{"id": 1, "test": "ok"}`), Exp: 1})
+	test([]*Item{
+		{Key: "set_1", Value: []byte(`{"id": 1, "test": "ok"}`), Exp: 1},
+	})
+	test([]*Item{
+		{Key: "set_2", Value: []byte(`{"id": 1, "test": "ok"}`), Exp: 1},
+		{Key: "set_3", Value: []byte(`{"id": 1, "test": "ok"}`), Exp: 1},
+	})
+	cp.SetNoreply(true)
+	defer cp.SetNoreply(false)
+	test([]*Item{
+		{Key: "set_4", Value: []byte(`{"id": 1, "test": "ok"}`), Exp: 1},
+		{Key: "set_5", Value: []byte(`{"id": 1, "test": "ok"}`), Exp: 1},
+	})
 }
 
 func TestConnectionPool_Add(t *testing.T) {

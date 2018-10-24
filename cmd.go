@@ -9,6 +9,7 @@ import (
 	"github.com/pkg/errors"
 )
 
+// errors
 var (
 	ErrNonexistentCommand = errors.New("nonexiststent command error")
 	ErrClient             = errors.New("client error")
@@ -122,6 +123,8 @@ func (cp *ConnectionPool) Delete(keys ...string) (failedKeys []string, err error
 		cp.putConn(c, err)
 	}()
 
+	c.Lock()
+	defer c.Unlock()
 	c.reset()
 	// delete <key> [<time>] [noreply]\r\n
 	for _, key := range keys {
@@ -135,7 +138,7 @@ func (cp *ConnectionPool) Delete(keys ...string) (failedKeys []string, err error
 			continue
 		}
 		c.ncs[node].writestrings("\r\n")
-		c.setDeadline()
+		c.setDeadline(node)
 		reply, err1 := c.ncs[node].readline()
 		if err1 != nil {
 			return []string{}, errors.Wrap(err1, "Failed readline")
@@ -149,7 +152,7 @@ func (cp *ConnectionPool) Delete(keys ...string) (failedKeys []string, err error
 			if c.ncs[node].count == 0 {
 				continue
 			}
-			c.setDeadline()
+			c.setDeadline(node)
 			err = c.ncs[node].flush()
 			if err != nil {
 				return []string{}, errors.Wrap(err, "Failed flush")
@@ -169,12 +172,15 @@ func (cp *ConnectionPool) FlushAll() error {
 		cp.putConn(c, err)
 	}()
 
-	c.setDeadline()
+	c.Lock()
+	defer c.Unlock()
+
 	// flush_all [delay] [noreply]\r\n
-	for _, nc := range c.ncs {
+	for node, nc := range c.ncs {
 		if !nc.isAlive {
 			continue
 		}
+		c.setDeadline(node)
 		nc.writestrings("flush_all\r\n")
 		_, err = nc.readline()
 		if err != nil {
@@ -195,6 +201,8 @@ func (cp *ConnectionPool) Stats(argument string) (resultMap map[string][]byte, e
 		cp.putConn(c, err)
 	}()
 
+	c.Lock()
+	defer c.Unlock()
 	for node := range c.ncs {
 		if !c.ncs[node].isAlive {
 			continue
@@ -204,7 +212,7 @@ func (cp *ConnectionPool) Stats(argument string) (resultMap map[string][]byte, e
 		} else {
 			c.ncs[node].writestrings("stats ", argument, "\r\n")
 		}
-		c.setDeadline()
+		c.setDeadline(node)
 		c.ncs[node].flush()
 		var result []byte
 		for {
@@ -236,6 +244,8 @@ func (cp *ConnectionPool) get(command string, keys []string) ([]*Item, error) {
 		cp.putConn(c, err)
 	}()
 
+	c.Lock()
+	defer c.Unlock()
 	c.reset()
 	results = make([]*Item, 0, len(keys))
 	if len(keys) == 0 {
@@ -285,7 +295,7 @@ func (cp *ConnectionPool) get(command string, keys []string) ([]*Item, error) {
 				}
 			}
 			// <data block>\r\n
-			c.setDeadline()
+			c.setDeadline(node)
 			b, err := c.ncs[node].read(int(size) + 2)
 			if err != nil {
 				return results, errors.Wrap(err, "Failed read")
@@ -313,6 +323,8 @@ func (cp *ConnectionPool) store(command string, items []*Item) (failedKeys []str
 		cp.putConn(c, err)
 	}()
 
+	c.Lock()
+	defer c.Unlock()
 	c.reset()
 	for _, item := range items {
 		rawkey := cp.addPrefix(item.Key)
@@ -339,7 +351,7 @@ func (cp *ConnectionPool) store(command string, items []*Item) (failedKeys []str
 			c.ncs[node].count++
 			continue
 		}
-		c.setDeadline()
+		c.setDeadline(node)
 		reply, err1 := c.ncs[node].readline()
 		if err1 != nil {
 			return []string{}, errors.Wrap(err1, "Failed readline")
@@ -353,8 +365,8 @@ func (cp *ConnectionPool) store(command string, items []*Item) (failedKeys []str
 			if c.ncs[node].count == 0 {
 				continue
 			}
-			c.setDeadline()
-			err = c.ncs[node].flush()
+			c.setDeadline(node)
+			err := c.ncs[node].flush()
 			if err != nil {
 				return []string{}, errors.Wrap(err, "Failed flush")
 			}
