@@ -18,7 +18,7 @@ import (
 
 func main() {
   cp := gm.New(
-    gm.Server{
+    gm.Servers{
       {Host: "localhost", Port: 11211, Alias: "mem1"},
     }, "prefix",
   )
