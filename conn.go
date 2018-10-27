@@ -71,7 +71,7 @@ func newConn(cp *ConnectionPool) (*conn, error) {
 }
 
 func (c *conn) checkAliveAndReconnect() {
-	if c == nil || c.cp.closed {
+	if c == nil || c.cp.closed || !c.cp.failover {
 		return
 	}
 	c.Lock()
