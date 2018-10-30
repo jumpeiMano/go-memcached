@@ -138,7 +138,10 @@ func (cp *ConnectionPool) Delete(keys ...string) (failedKeys []string, err error
 	// delete <key> [<time>] [noreply]\r\n
 	for _, key := range keys {
 		rawkey := cp.addPrefix(key)
-		node, _ := c.hashRing.GetNode(rawkey)
+		node, ok := c.hashRing.GetNode(rawkey)
+		if !ok {
+			return []string{}, errors.New("Failed GetNode")
+		}
 		c.ncs[node].writestrings("delete ", rawkey)
 		if cp.noreply {
 			c.ncs[node].writestring(" noreply")
@@ -259,7 +262,10 @@ func (cp *ConnectionPool) get(command string, keys []string) ([]*Item, error) {
 	// get(s) <key>*\r\n
 	for _, key := range keys {
 		rawkey := cp.addPrefix(key)
-		node, _ := c.hashRing.GetNode(rawkey)
+		node, ok := c.hashRing.GetNode(rawkey)
+		if !ok {
+			return []*Item{}, errors.New("Failed GetNode")
+		}
 		if c.ncs[node].count == 0 {
 			c.ncs[node].writestrings(command)
 		}
@@ -332,7 +338,10 @@ func (cp *ConnectionPool) store(command string, items []*Item) (failedKeys []str
 	c.reset()
 	for _, item := range items {
 		rawkey := cp.addPrefix(item.Key)
-		node, _ := c.hashRing.GetNode(rawkey)
+		node, ok := c.hashRing.GetNode(rawkey)
+		if !ok {
+			return []string{}, errors.New("Failed GetNode")
+		}
 		// <command name> <key> <flags> <exptime> <bytes> [noreply]\r\n
 		c.ncs[node].writestrings(command, " ", rawkey, " ")
 		c.ncs[node].write(strconv.AppendUint(nil, uint64(item.Flags), 10))
