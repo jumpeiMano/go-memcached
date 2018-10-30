@@ -47,14 +47,14 @@ func newConn(cp *ConnectionPool) (*conn, error) {
 	for _, s := range cp.servers {
 		_nc, err := c.newNC(&s)
 		if err == nil {
-			c.ncs[s.Alias] = _nc
+			c.ncs[s.getNodeName()] = _nc
 			continue
 		}
 		if !c.cp.failover {
 			return nil, err
 		}
 		c.hashRing = c.hashRing.RemoveNode(s.getNodeName())
-		c.ncs[s.Alias] = &nc{
+		c.ncs[s.getNodeName()] = &nc{
 			isAlive:          false,
 			nextAliveCheckAt: time.Now().Add(cp.aliveCheckPeriod),
 		}

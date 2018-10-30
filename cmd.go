@@ -142,15 +142,19 @@ func (cp *ConnectionPool) Delete(keys ...string) (failedKeys []string, err error
 		if !ok {
 			return []string{}, errors.New("Failed GetNode")
 		}
-		c.ncs[node].writestrings("delete ", rawkey)
+		nc, ok := c.ncs[node]
+		if !ok {
+			return []string{}, fmt.Errorf("Failed to get a connection: %s", node)
+		}
+		nc.writestrings("delete ", rawkey)
 		if cp.noreply {
-			c.ncs[node].writestring(" noreply")
-			c.ncs[node].writestrings("\r\n")
-			c.ncs[node].count++
+			nc.writestring(" noreply")
+			nc.writestrings("\r\n")
+			nc.count++
 			continue
 		}
-		c.ncs[node].writestrings("\r\n")
-		reply, err1 := c.ncs[node].readline()
+		nc.writestrings("\r\n")
+		reply, err1 := nc.readline()
 		if err1 != nil {
 			return []string{}, errors.Wrap(err1, "Failed readline")
 		}
@@ -159,11 +163,11 @@ func (cp *ConnectionPool) Delete(keys ...string) (failedKeys []string, err error
 		}
 	}
 	if cp.noreply {
-		for node := range c.ncs {
-			if c.ncs[node].count == 0 {
+		for _, nc := range c.ncs {
+			if nc.count == 0 {
 				continue
 			}
-			err = c.ncs[node].flush()
+			err = nc.flush()
 			if err != nil {
 				return []string{}, errors.Wrap(err, "Failed flush")
 			}
@@ -266,19 +270,23 @@ func (cp *ConnectionPool) get(command string, keys []string) ([]*Item, error) {
 		if !ok {
 			return []*Item{}, errors.New("Failed GetNode")
 		}
-		if c.ncs[node].count == 0 {
-			c.ncs[node].writestrings(command)
+		nc, ok := c.ncs[node]
+		if !ok {
+			return []*Item{}, fmt.Errorf("Failed to get a connection: %s", node)
 		}
-		c.ncs[node].writestrings(" ", rawkey)
-		c.ncs[node].count++
+		if nc.count == 0 {
+			nc.writestrings(command)
+		}
+		nc.writestrings(" ", rawkey)
+		nc.count++
 	}
 
-	for node := range c.ncs {
-		if c.ncs[node].count == 0 {
+	for _, nc := range c.ncs {
+		if nc.count == 0 {
 			continue
 		}
-		c.ncs[node].writestrings("\r\n")
-		header, err := c.ncs[node].readline()
+		nc.writestrings("\r\n")
+		header, err := nc.readline()
 		if err != nil {
 			return results, errors.Wrap(err, "Failed readline")
 		}
@@ -306,13 +314,13 @@ func (cp *ConnectionPool) get(command string, keys []string) ([]*Item, error) {
 				}
 			}
 			// <data block>\r\n
-			b, err := c.ncs[node].read(int(size) + 2)
+			b, err := nc.read(int(size) + 2)
 			if err != nil {
 				return results, errors.Wrap(err, "Failed read")
 			}
 			result.Value = b[:size]
 			results = append(results, &result)
-			header, err = c.ncs[node].readline()
+			header, err = nc.readline()
 			if err != nil {
 				return results, errors.Wrap(err, "Failed readline")
 			}
@@ -342,29 +350,33 @@ func (cp *ConnectionPool) store(command string, items []*Item) (failedKeys []str
 		if !ok {
 			return []string{}, errors.New("Failed GetNode")
 		}
+		nc, ok := c.ncs[node]
+		if !ok {
+			return []string{}, fmt.Errorf("Failed to get a connection: %s", node)
+		}
 		// <command name> <key> <flags> <exptime> <bytes> [noreply]\r\n
-		c.ncs[node].writestrings(command, " ", rawkey, " ")
-		c.ncs[node].write(strconv.AppendUint(nil, uint64(item.Flags), 10))
-		c.ncs[node].writestring(" ")
-		c.ncs[node].write(strconv.AppendUint(nil, uint64(item.Exp), 10))
-		c.ncs[node].writestring(" ")
-		c.ncs[node].write(strconv.AppendInt(nil, int64(len(item.Value)), 10))
+		nc.writestrings(command, " ", rawkey, " ")
+		nc.write(strconv.AppendUint(nil, uint64(item.Flags), 10))
+		nc.writestring(" ")
+		nc.write(strconv.AppendUint(nil, uint64(item.Exp), 10))
+		nc.writestring(" ")
+		nc.write(strconv.AppendInt(nil, int64(len(item.Value)), 10))
 		if item.Cas != 0 {
-			c.ncs[node].writestring(" ")
-			c.ncs[node].write(strconv.AppendUint(nil, item.Cas, 10))
+			nc.writestring(" ")
+			nc.write(strconv.AppendUint(nil, item.Cas, 10))
 		}
 		if cp.noreply {
-			c.ncs[node].writestring(" noreply")
+			nc.writestring(" noreply")
 		}
-		c.ncs[node].writestring("\r\n")
+		nc.writestring("\r\n")
 		// <data block>\r\n
-		c.ncs[node].write(item.Value)
-		c.ncs[node].writestring("\r\n")
+		nc.write(item.Value)
+		nc.writestring("\r\n")
 		if cp.noreply {
-			c.ncs[node].count++
+			nc.count++
 			continue
 		}
-		reply, err1 := c.ncs[node].readline()
+		reply, err1 := nc.readline()
 		if err1 != nil {
 			return []string{}, errors.Wrap(err1, "Failed readline")
 		}
@@ -373,11 +385,11 @@ func (cp *ConnectionPool) store(command string, items []*Item) (failedKeys []str
 		}
 	}
 	if cp.noreply {
-		for node := range c.ncs {
-			if c.ncs[node].count == 0 {
+		for _, nc := range c.ncs {
+			if nc.count == 0 {
 				continue
 			}
-			err := c.ncs[node].flush()
+			err := nc.flush()
 			if err != nil {
 				return []string{}, errors.Wrap(err, "Failed flush")
 			}
