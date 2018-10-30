@@ -22,6 +22,7 @@ type conn struct {
 }
 
 type nc struct {
+	cp *ConnectionPool
 	net.Conn
 	count            int
 	buffered         bufio.ReadWriter
@@ -116,23 +117,12 @@ func (c *conn) expired(timeout time.Duration) bool {
 	return c.createdAt.Add(timeout).Before(time.Now())
 }
 
-func (c *conn) setDeadline(node string) error {
-	nc, ok := c.ncs[node]
-	if !ok || !nc.isAlive {
-		return nil
-	}
-	if err := nc.SetDeadline(time.Now().Add(c.cp.pollTimeout)); err != nil {
-		return errors.Wrap(err, "Failed SetDeadLine")
-	}
-	return nil
-}
-
 func (c *conn) newNC(s *Server) (*nc, error) {
 	network := "tcp"
 	if strings.Contains(s.Host, "/") {
 		network = "unix"
 	}
-	var _nc nc
+	_nc := nc{cp: c.cp}
 	var err error
 	_nc.Conn, err = net.DialTimeout(network, s.getAddr(), c.cp.connectTimeout)
 	if err != nil {
@@ -167,6 +157,9 @@ func (nc *nc) writestrings(strs ...string) {
 }
 
 func (nc *nc) writestring(s string) error {
+	if err := nc.SetDeadline(time.Now().Add(nc.cp.pollTimeout)); err != nil {
+		return errors.Wrap(err, "Failed SetDeadLine")
+	}
 	if _, err := nc.buffered.WriteString(s); err != nil {
 		return errors.Wrap(err, "Failed buffered.WriteString")
 	}
@@ -174,6 +167,9 @@ func (nc *nc) writestring(s string) error {
 }
 
 func (nc *nc) write(b []byte) error {
+	if err := nc.SetDeadline(time.Now().Add(nc.cp.pollTimeout)); err != nil {
+		return errors.Wrap(err, "Failed SetDeadLine")
+	}
 	if _, err := nc.buffered.Write(b); err != nil {
 		return errors.Wrap(err, "Failed buffered,Write")
 	}
@@ -181,6 +177,9 @@ func (nc *nc) write(b []byte) error {
 }
 
 func (nc *nc) flush() error {
+	if err := nc.SetDeadline(time.Now().Add(nc.cp.pollTimeout)); err != nil {
+		return errors.Wrap(err, "Failed SetDeadLine")
+	}
 	if err := nc.buffered.Flush(); err != nil {
 		return errors.Wrapf(ErrBadConn, "Failed buffered.Flush: %+v", err)
 	}
@@ -192,6 +191,9 @@ func (nc *nc) readline() (string, error) {
 		return "", errors.Wrap(err, "Failed flush")
 	}
 
+	if err := nc.SetDeadline(time.Now().Add(nc.cp.pollTimeout)); err != nil {
+		return "", errors.Wrap(err, "Failed SetDeadLine")
+	}
 	l, err := nc.buffered.ReadSlice('\n')
 	if err != nil {
 		return "", errors.Wrapf(ErrBadConn, "Failed bufferd.ReadLine: %+v", err)
@@ -207,6 +209,9 @@ func (nc *nc) read(count int) ([]byte, error) {
 		return []byte{}, errors.Wrap(err, "Failed flush")
 	}
 	b := make([]byte, count)
+	if err := nc.SetDeadline(time.Now().Add(nc.cp.pollTimeout)); err != nil {
+		return []byte{}, errors.Wrap(err, "Failed SetDeadLine")
+	}
 	if _, err := io.ReadFull(nc.buffered, b); err != nil {
 		return b, errors.Wrapf(ErrBadConn, "Failed ReadFull: %+v", err)
 	}
