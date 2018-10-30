@@ -29,15 +29,6 @@ type nc struct {
 	nextAliveCheckAt time.Time
 }
 
-// Item gives the cached data.
-type Item struct {
-	Key   string
-	Value []byte
-	Flags uint16
-	Cas   uint64
-	Exp   int
-}
-
 // Error
 var (
 	ErrMemcachedClosed = errors.New("memcached is closed")

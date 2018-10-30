@@ -16,6 +16,15 @@ var (
 	ErrServer             = errors.New("server error")
 )
 
+// Item gives the cached data.
+type Item struct {
+	Key   string
+	Value []byte
+	Flags uint16
+	Cas   uint64
+	Exp   int64
+}
+
 // Get returns cached data for given keys.
 func (cp *ConnectionPool) Get(keys ...string) (results []*Item, err error) {
 	results, err = cp.get("get", keys)
