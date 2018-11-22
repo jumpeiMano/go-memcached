@@ -7,7 +7,7 @@ import (
 )
 
 func TestConnectionPool_Get(t *testing.T) {
-	if _, err := cp.Set(&Item{Key: "Get_1", Value: []byte(`{"get": 1}`), Exp: 1}); err != nil {
+	if _, err := cp.Set(false, &Item{Key: "Get_1", Value: []byte(`{"get": 1}`), Exp: 1}); err != nil {
 		t.Fatalf("Failed Set: %+v", err)
 	}
 	test := func(keys []string, eis []*Item) {
@@ -23,7 +23,7 @@ func TestConnectionPool_Get(t *testing.T) {
 }
 
 func TestConnectionPool_GetOrSet(t *testing.T) {
-	if _, err := cp.Set(&Item{Key: "GetOrSet_1", Value: []byte(`{"get_or_set": 1}`), Exp: 1}); err != nil {
+	if _, err := cp.Set(false, &Item{Key: "GetOrSet_1", Value: []byte(`{"get_or_set": 1}`), Exp: 1}); err != nil {
 		t.Fatalf("Failed Set: %+v", err)
 	}
 	test := func(key string, eitem *Item) {
@@ -40,7 +40,7 @@ func TestConnectionPool_GetOrSet(t *testing.T) {
 }
 
 func TestConnectionPool_GetOrSetMulti(t *testing.T) {
-	if _, err := cp.Set(&Item{Key: "GetOrSetM_1", Value: []byte(`{"get_or_set_m": 1}`), Exp: 1}); err != nil {
+	if _, err := cp.Set(false, &Item{Key: "GetOrSetM_1", Value: []byte(`{"get_or_set_m": 1}`), Exp: 1}); err != nil {
 		t.Fatalf("Failed Set: %+v", err)
 	}
 	test := func(keys []string, cb func(keys []string) ([]*Item, error), eis []*Item) {
@@ -81,7 +81,7 @@ func TestConnectionPool_GetOrSetMulti(t *testing.T) {
 }
 
 func TestConnectionPool_Gets(t *testing.T) {
-	if _, err := cp.Set(&Item{Key: "Gets_1", Value: []byte(`{"gets": 1}`), Exp: 1}); err != nil {
+	if _, err := cp.Set(false, &Item{Key: "Gets_1", Value: []byte(`{"gets": 1}`), Exp: 1}); err != nil {
 		t.Fatalf("Failed Set: %+v", err)
 	}
 	test := func(key string, evs [][]byte) {
@@ -100,8 +100,8 @@ func TestConnectionPool_Gets(t *testing.T) {
 }
 
 func TestConnectionPool_Set(t *testing.T) {
-	test := func(items []*Item) {
-		failedKeys, err := cp.Set(items...)
+	test := func(items []*Item, noreply bool) {
+		failedKeys, err := cp.Set(noreply, items...)
 		if err != nil {
 			t.Fatalf("Failed Set: %+v", err)
 		}
@@ -109,25 +109,23 @@ func TestConnectionPool_Set(t *testing.T) {
 	}
 	test([]*Item{
 		{Key: "set_1", Value: []byte(`{"id": 1, "test": "ok"}`), Exp: 1},
-	})
+	}, false)
 	test([]*Item{
 		{Key: "set_2", Value: []byte(`{"id": 1, "test": "ok"}`), Exp: 1},
 		{Key: "set_3", Value: []byte(`{"id": 1, "test": "ok"}`), Exp: 1},
-	})
-	cp.SetNoreply(true)
-	defer cp.SetNoreply(false)
+	}, false)
 	test([]*Item{
 		{Key: "set_4", Value: []byte(`{"id": 1, "test": "ok"}`), Exp: 1},
 		{Key: "set_5", Value: []byte(`{"id": 1, "test": "ok"}`), Exp: 1},
-	})
+	}, true)
 }
 
 func TestConnectionPool_Add(t *testing.T) {
-	if _, err := cp.Set(&Item{Key: "Add_1", Value: []byte(`{"add": 1}`), Exp: 1}); err != nil {
+	if _, err := cp.Set(false, &Item{Key: "Add_1", Value: []byte(`{"add": 1}`), Exp: 1}); err != nil {
 		t.Fatalf("Failed Set: %+v", err)
 	}
 	test := func(item *Item, eBool bool, evs [][]byte) {
-		failedKeys, err := cp.Add(item)
+		failedKeys, err := cp.Add(false, item)
 		if err != nil {
 			t.Fatalf("Failed Add: %+v", err)
 		}
@@ -147,11 +145,11 @@ func TestConnectionPool_Add(t *testing.T) {
 }
 
 func TestConnectionPool_Replace(t *testing.T) {
-	if _, err := cp.Set(&Item{Key: "Replace_1", Value: []byte(`{"replace": 1}`), Exp: 1}); err != nil {
+	if _, err := cp.Set(false, &Item{Key: "Replace_1", Value: []byte(`{"replace": 1}`), Exp: 1}); err != nil {
 		t.Fatalf("Failed Set: %+v", err)
 	}
 	test := func(item *Item, eBool bool, evs [][]byte) {
-		failedKeys, err := cp.Replace(item)
+		failedKeys, err := cp.Replace(false, item)
 		if err != nil {
 			t.Fatalf("Failed Replace: %+v", err)
 		}
@@ -171,11 +169,11 @@ func TestConnectionPool_Replace(t *testing.T) {
 }
 
 func TestConnectionPool_Append(t *testing.T) {
-	if _, err := cp.Set(&Item{Key: "Append_1", Value: []byte(`{"append": 1}`), Exp: 1}); err != nil {
+	if _, err := cp.Set(false, &Item{Key: "Append_1", Value: []byte(`{"append": 1}`), Exp: 1}); err != nil {
 		t.Fatalf("Failed Set: %+v", err)
 	}
 	test := func(item *Item, eBool bool, evs [][]byte) {
-		failedKeys, err := cp.Append(item)
+		failedKeys, err := cp.Append(false, item)
 		if err != nil {
 			t.Fatalf("Failed Append: %+v", err)
 		}
@@ -195,11 +193,11 @@ func TestConnectionPool_Append(t *testing.T) {
 }
 
 func TestConnectionPool_Prepend(t *testing.T) {
-	if _, err := cp.Set(&Item{Key: "Prepend_1", Value: []byte(`{"prepend": 1}`), Exp: 1}); err != nil {
+	if _, err := cp.Set(false, &Item{Key: "Prepend_1", Value: []byte(`{"prepend": 1}`), Exp: 1}); err != nil {
 		t.Fatalf("Failed Set: %+v", err)
 	}
 	test := func(item *Item, eBool bool, evs [][]byte) {
-		failedKeys, err := cp.Prepend(item)
+		failedKeys, err := cp.Prepend(false, item)
 		if err != nil {
 			t.Fatalf("Failed Prepend: %+v", err)
 		}
@@ -219,10 +217,10 @@ func TestConnectionPool_Prepend(t *testing.T) {
 }
 
 func TestConnectionPool_Cas(t *testing.T) {
-	if _, err := cp.Set(&Item{Key: "Cas_1", Value: []byte(`{"cas": 1}`), Exp: 1}); err != nil {
+	if _, err := cp.Set(false, &Item{Key: "Cas_1", Value: []byte(`{"cas": 1}`), Exp: 1}); err != nil {
 		t.Fatalf("Failed Set: %+v", err)
 	}
-	if _, err := cp.Set(&Item{Key: "Cas_2", Value: []byte(`{"cas": 2}`), Exp: 1}); err != nil {
+	if _, err := cp.Set(false, &Item{Key: "Cas_2", Value: []byte(`{"cas": 2}`), Exp: 1}); err != nil {
 		t.Fatalf("Failed Set: %+v", err)
 	}
 	test := func(pattern string, item *Item, eBool bool, evs [][]byte) {
@@ -232,11 +230,11 @@ func TestConnectionPool_Cas(t *testing.T) {
 		}
 		item.Cas = is[0].Cas
 		if pattern == "before" {
-			if _, err = cp.Append(&Item{Key: item.Key, Value: []byte("update"), Exp: 1}); err != nil {
+			if _, err = cp.Append(false, &Item{Key: item.Key, Value: []byte("update"), Exp: 1}); err != nil {
 				t.Fatalf("Failed Append: %+v", err)
 			}
 		}
-		failedKeys, err := cp.Cas(item)
+		failedKeys, err := cp.Cas(false, item)
 		if err != nil {
 			t.Fatalf("Failed Cas: %+v", err)
 		}
@@ -260,11 +258,11 @@ func TestConnectionPool_Delete(t *testing.T) {
 		{Key: "Delete_1", Value: []byte(`{"delete": 1}`), Exp: 1},
 		{Key: "Delete_2", Value: []byte(`{"delete": 2}`), Exp: 1},
 	}
-	if _, err := cp.Set(items...); err != nil {
+	if _, err := cp.Set(false, items...); err != nil {
 		t.Fatalf("Failed Set: %+v", err)
 	}
 	test := func(keys []string, eBool bool, evs [][]byte) {
-		failedKeys, err := cp.Delete(keys...)
+		failedKeys, err := cp.Delete(false, keys...)
 		if err != nil {
 			t.Fatalf("Failed Delete: %+v", err)
 		}
@@ -283,17 +281,15 @@ func TestConnectionPool_Delete(t *testing.T) {
 }
 
 func TestConnectionPool_Delete_Noreply(t *testing.T) {
-	cp.SetNoreply(true)
-	defer cp.SetNoreply(false)
 	items := []*Item{
 		{Key: "Delete_N_1", Value: []byte(`{"delete_n": 1}`), Exp: 1},
 		{Key: "Delete_N_2", Value: []byte(`{"delete_n": 2}`), Exp: 1},
 	}
-	if _, err := cp.Set(items...); err != nil {
+	if _, err := cp.Set(true, items...); err != nil {
 		t.Fatalf("Failed Set: %+v", err)
 	}
 	test := func(keys []string, eBool bool, evs [][]byte) {
-		failedKeys, err := cp.Delete(keys...)
+		failedKeys, err := cp.Delete(false, keys...)
 		if err != nil {
 			t.Fatalf("Failed Delete: %+v", err)
 		}
