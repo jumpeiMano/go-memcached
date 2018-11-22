@@ -44,7 +44,7 @@ func (cp *ConnectionPool) GetOrSet(key string, cb func(key string) (*Item, error
 	if err != nil {
 		return nil, errors.Wrap(err, "Failed cb")
 	}
-	_, err = cp.Set(item)
+	_, err = cp.Set(false, item)
 	return item, errors.Wrap(err, "Failed Set")
 }
 
@@ -76,7 +76,7 @@ func (cp *ConnectionPool) GetOrSetMulti(keys []string, cb func(keys []string) ([
 	if len(cbItems) == 0 {
 		return items, nil
 	}
-	if _, err = cp.Set(cbItems...); err != nil {
+	if _, err = cp.Set(true, cbItems...); err != nil {
 		return items, errors.Wrap(err, "Failed Set")
 	}
 	items = append(items, cbItems...)
@@ -92,38 +92,38 @@ func (cp *ConnectionPool) Gets(keys ...string) (results []*Item, err error) {
 }
 
 // Set set the value with specified cache key.
-func (cp *ConnectionPool) Set(items ...*Item) (failedKeys []string, err error) {
-	return cp.store("set", items)
+func (cp *ConnectionPool) Set(noreply bool, items ...*Item) (failedKeys []string, err error) {
+	return cp.store("set", items, noreply)
 }
 
 // Add store the value only if it does not already exist.
-func (cp *ConnectionPool) Add(items ...*Item) (failedKeys []string, err error) {
-	return cp.store("add", items)
+func (cp *ConnectionPool) Add(noreply bool, items ...*Item) (failedKeys []string, err error) {
+	return cp.store("add", items, noreply)
 }
 
 // Replace replaces the value, only if the value already exists,
 // for the specified cache key.
-func (cp *ConnectionPool) Replace(items ...*Item) (failedKeys []string, err error) {
-	return cp.store("replace", items)
+func (cp *ConnectionPool) Replace(noreply bool, items ...*Item) (failedKeys []string, err error) {
+	return cp.store("replace", items, noreply)
 }
 
 // Append appends the value after the last bytes in an existing item.
-func (cp *ConnectionPool) Append(items ...*Item) (failedKeys []string, err error) {
-	return cp.store("append", items)
+func (cp *ConnectionPool) Append(noreply bool, items ...*Item) (failedKeys []string, err error) {
+	return cp.store("append", items, noreply)
 }
 
 // Prepend prepends the value before existing value.
-func (cp *ConnectionPool) Prepend(items ...*Item) (failedKeys []string, err error) {
-	return cp.store("prepend", items)
+func (cp *ConnectionPool) Prepend(noreply bool, items ...*Item) (failedKeys []string, err error) {
+	return cp.store("prepend", items, noreply)
 }
 
 // Cas stores the value only if no one else has updated the data since you read it last.
-func (cp *ConnectionPool) Cas(items ...*Item) (failedKeys []string, err error) {
-	return cp.store("cas", items)
+func (cp *ConnectionPool) Cas(noreply bool, items ...*Item) (failedKeys []string, err error) {
+	return cp.store("cas", items, noreply)
 }
 
 // Delete delete the value for the specified cache key.
-func (cp *ConnectionPool) Delete(keys ...string) (failedKeys []string, err error) {
+func (cp *ConnectionPool) Delete(noreply bool, keys ...string) (failedKeys []string, err error) {
 	c, err := cp.conn(context.Background())
 	if err != nil {
 		return []string{}, errors.Wrap(err, "Failed cp.conn")
@@ -147,7 +147,7 @@ func (cp *ConnectionPool) Delete(keys ...string) (failedKeys []string, err error
 			return []string{}, fmt.Errorf("Failed to get a connection: %s", node)
 		}
 		nc.writestrings("delete ", rawkey)
-		if cp.noreply {
+		if noreply {
 			nc.writestring(" noreply")
 			nc.writestrings("\r\n")
 			nc.count++
@@ -162,7 +162,7 @@ func (cp *ConnectionPool) Delete(keys ...string) (failedKeys []string, err error
 			failedKeys = append(failedKeys, key)
 		}
 	}
-	if cp.noreply {
+	if noreply {
 		for _, nc := range c.ncs {
 			if nc.count == 0 {
 				continue
@@ -332,7 +332,7 @@ func (cp *ConnectionPool) get(command string, keys []string) ([]*Item, error) {
 	return results, nil
 }
 
-func (cp *ConnectionPool) store(command string, items []*Item) (failedKeys []string, err error) {
+func (cp *ConnectionPool) store(command string, items []*Item, noreply bool) (failedKeys []string, err error) {
 	c, err := cp.conn(context.Background())
 	if err != nil {
 		return []string{}, errors.Wrap(err, "Failed cp.conn")
@@ -365,14 +365,14 @@ func (cp *ConnectionPool) store(command string, items []*Item) (failedKeys []str
 			nc.writestring(" ")
 			nc.write(strconv.AppendUint(nil, item.Cas, 10))
 		}
-		if cp.noreply {
+		if noreply {
 			nc.writestring(" noreply")
 		}
 		nc.writestring("\r\n")
 		// <data block>\r\n
 		nc.write(item.Value)
 		nc.writestring("\r\n")
-		if cp.noreply {
+		if noreply {
 			nc.count++
 			continue
 		}
@@ -384,7 +384,7 @@ func (cp *ConnectionPool) store(command string, items []*Item) (failedKeys []str
 			failedKeys = append(failedKeys, item.Key)
 		}
 	}
-	if cp.noreply {
+	if noreply {
 		for _, nc := range c.ncs {
 			if nc.count == 0 {
 				continue
