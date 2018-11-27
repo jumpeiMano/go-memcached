@@ -27,7 +27,6 @@ type nc struct {
 	count            int
 	buffered         bufio.ReadWriter
 	isAlive          bool
-	nextAliveCheckAt time.Time
 }
 
 // Error
@@ -56,40 +55,9 @@ func newConn(cp *ConnectionPool) (*conn, error) {
 		c.hashRing = c.hashRing.RemoveNode(s.getNodeName())
 		c.ncs[s.getNodeName()] = &nc{
 			isAlive:          false,
-			nextAliveCheckAt: time.Now().Add(cp.aliveCheckPeriod),
 		}
 	}
 	return c, nil
-}
-
-func (c *conn) checkAliveAndReconnect() {
-	if c == nil || c.cp.closed || !c.cp.failover {
-		return
-	}
-	c.Lock()
-	defer c.Unlock()
-	now := time.Now()
-	for _, s := range c.cp.servers {
-		node := s.getNodeName()
-		if c.ncs[node] != nil && now.Before(c.ncs[node].nextAliveCheckAt) {
-			continue
-		}
-		if c.ncs[node] == nil ||
-			!c.ncs[node].isAlive ||
-			!c.ncs[node].checkAlive() {
-			_nc, err := c.newNC(&s)
-			if err == nil {
-				c.ncs[node] = _nc
-				c.hashRing = c.hashRing.AddNode(node)
-			} else {
-				c.ncs[node] = &nc{
-					isAlive:          false,
-					nextAliveCheckAt: now.Add(c.cp.aliveCheckPeriod),
-				}
-				c.hashRing = c.hashRing.RemoveNode(node)
-			}
-		}
-	}
 }
 
 func (c *conn) reset() {
@@ -137,17 +105,7 @@ func (c *conn) newNC(s *Server) (*nc, error) {
 		Writer: bufio.NewWriter(&_nc),
 	}
 	_nc.isAlive = true
-	_nc.nextAliveCheckAt = time.Now().Add(c.cp.aliveCheckPeriod)
 	return &_nc, nil
-}
-
-func (nc *nc) checkAlive() bool {
-	nc.writestring("version\r\n")
-	l, err := nc.readline()
-	if err != nil {
-		return false
-	}
-	return handleError(string(l)) == nil
 }
 
 func (nc *nc) writestrings(strs ...string) {

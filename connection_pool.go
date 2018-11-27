@@ -17,7 +17,6 @@ const (
 	defaultPort             = 11211
 	defaultConnectTimeout   = 1 * time.Second
 	defaultPollTimeout      = 1 * time.Second
-	defaultAliveCheckPeriod = 10 * time.Second
 )
 
 // ConnectionPool struct
@@ -26,7 +25,6 @@ type ConnectionPool struct {
 	prefix           string
 	connectTimeout   time.Duration
 	pollTimeout      time.Duration
-	aliveCheckPeriod time.Duration
 	failover         bool
 	mu               sync.RWMutex
 	freeConns        []*conn
@@ -86,7 +84,6 @@ func New(servers Servers, prefix string) (cp *ConnectionPool) {
 	cp.openerCh = make(chan struct{}, connRequestQueueSize)
 	cp.connRequests = make(map[uint64]chan connRequest)
 	cp.connectTimeout = defaultConnectTimeout
-	cp.aliveCheckPeriod = defaultAliveCheckPeriod
 	cp.pollTimeout = defaultPollTimeout
 
 	go cp.opener()
@@ -220,7 +217,6 @@ func (cp *ConnectionPool) _conn(ctx context.Context, useFreeConn bool) (*conn, e
 			c.close()
 			return nil, ErrBadConn
 		}
-		c.checkAliveAndReconnect()
 		return c, nil
 	}
 
@@ -251,7 +247,6 @@ func (cp *ConnectionPool) _conn(ctx context.Context, useFreeConn bool) (*conn, e
 			if !ok {
 				return nil, ErrMemcachedClosed
 			}
-			ret.conn.checkAliveAndReconnect()
 			return ret.conn, ret.err
 		}
 	}
@@ -303,13 +298,6 @@ func (cp *ConnectionPool) SetPollTimeout(timeout time.Duration) {
 	cp.mu.Lock()
 	defer cp.mu.Unlock()
 	cp.pollTimeout = timeout
-}
-
-// SetAliveCheckPeriod sets the period of connection's alive check to memcached server.
-func (cp *ConnectionPool) SetAliveCheckPeriod(period time.Duration) {
-	cp.mu.Lock()
-	defer cp.mu.Unlock()
-	cp.aliveCheckPeriod = period
 }
 
 // SetConnMaxOpen sets the maximum amount of opening connections.
