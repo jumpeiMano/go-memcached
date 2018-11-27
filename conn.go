@@ -24,9 +24,9 @@ type conn struct {
 type nc struct {
 	cp *ConnectionPool
 	net.Conn
-	count            int
-	buffered         bufio.ReadWriter
-	isAlive          bool
+	count    int
+	buffered bufio.ReadWriter
+	isAlive  bool
 }
 
 // Error
@@ -54,7 +54,7 @@ func newConn(cp *ConnectionPool) (*conn, error) {
 		}
 		c.hashRing = c.hashRing.RemoveNode(s.getNodeName())
 		c.ncs[s.getNodeName()] = &nc{
-			isAlive:          false,
+			isAlive: false,
 		}
 	}
 	return c, nil

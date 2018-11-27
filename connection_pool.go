@@ -14,28 +14,28 @@ import (
 const connRequestQueueSize = 1000000
 
 const (
-	defaultPort             = 11211
-	defaultConnectTimeout   = 1 * time.Second
-	defaultPollTimeout      = 1 * time.Second
+	defaultPort           = 11211
+	defaultConnectTimeout = 1 * time.Second
+	defaultPollTimeout    = 1 * time.Second
 )
 
 // ConnectionPool struct
 type ConnectionPool struct {
-	servers          Servers
-	prefix           string
-	connectTimeout   time.Duration
-	pollTimeout      time.Duration
-	failover         bool
-	mu               sync.RWMutex
-	freeConns        []*conn
-	numOpen          int
-	openerCh         chan struct{}
-	connRequests     map[uint64]chan connRequest
-	nextRequest      uint64
-	maxLifetime      time.Duration // maximum amount of time a connection may be reused
-	maxOpen          int           // maximum amount of connection num. maxOpen <= 0 means unlimited.
-	cleanerCh        chan struct{}
-	closed           bool
+	servers        Servers
+	prefix         string
+	connectTimeout time.Duration
+	pollTimeout    time.Duration
+	failover       bool
+	mu             sync.RWMutex
+	freeConns      []*conn
+	numOpen        int
+	openerCh       chan struct{}
+	connRequests   map[uint64]chan connRequest
+	nextRequest    uint64
+	maxLifetime    time.Duration // maximum amount of time a connection may be reused
+	maxOpen        int           // maximum amount of connection num. maxOpen <= 0 means unlimited.
+	cleanerCh      chan struct{}
+	closed         bool
 }
 
 // Servers are slice of Server.
