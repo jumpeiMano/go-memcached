@@ -261,8 +261,8 @@ func TestConnectionPool_Delete(t *testing.T) {
 	if _, err := cp.Set(false, items...); err != nil {
 		t.Fatalf("Failed Set: %+v", err)
 	}
-	test := func(keys []string, eBool bool, evs [][]byte) {
-		failedKeys, err := cp.Delete(false, keys...)
+	test := func(noreply bool, keys []string, eBool bool, evs [][]byte) {
+		failedKeys, err := cp.Delete(noreply, keys...)
 		if err != nil {
 			t.Fatalf("Failed Delete: %+v", err)
 		}
@@ -277,7 +277,8 @@ func TestConnectionPool_Delete(t *testing.T) {
 		}
 		assert.Equal(t, evs, vs)
 	}
-	test([]string{"Delete_1", "Delete_2"}, true, [][]byte{})
+	test(false, []string{"Delete_1", "Delete_2"}, true, [][]byte{})
+	test(true, []string{"Delete_1", "Delete_2"}, true, [][]byte{})
 }
 
 func TestConnectionPool_Delete_Noreply(t *testing.T) {

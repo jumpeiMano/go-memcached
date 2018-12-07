@@ -191,6 +191,7 @@ func (cp *ConnectionPool) Delete(noreply bool, keys ...string) (failedKeys []str
 					ec <- errors.Wrap(err, "Failed flush")
 					return
 				}
+				ec <- nil
 			}(_nc)
 		}
 	}
