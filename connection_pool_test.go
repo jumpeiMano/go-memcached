@@ -78,11 +78,17 @@ func TestConnectionPool_PutConnLocked(t *testing.T) {
 	_cp := New(ss, "")
 	defer _cp.Close()
 	cn, err := _cp._conn(context.Background(), true)
+	if err != nil {
+		t.Fatalf("Failed _conn: %+v", err)
+	}
 	_cp.mu.Lock()
 	_cp.putConnLocked(cn, err)
 	_cp.mu.Unlock()
 
 	cn, err = _cp._conn(context.Background(), true)
+	if err != nil {
+		t.Fatalf("Failed _conn: %+v", err)
+	}
 	_cp.mu.Lock()
 	req := make(chan connRequest, 1)
 	reqKey := _cp.nextRequest

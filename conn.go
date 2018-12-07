@@ -27,6 +27,7 @@ type nc struct {
 	count    int
 	buffered bufio.ReadWriter
 	isAlive  bool
+	mu       sync.RWMutex
 }
 
 // Error
@@ -85,6 +86,18 @@ func (c *conn) expired(timeout time.Duration) bool {
 	return c.createdAt.Add(timeout).Before(time.Now())
 }
 
+func (c *conn) setDeadline() error {
+	for node := range c.ncs {
+		if c.ncs[node].Conn == nil {
+			continue
+		}
+		if err := c.ncs[node].SetDeadline(time.Now().Add(c.cp.pollTimeout)); err != nil {
+			return errors.Wrap(err, "Failed SetDeadline")
+		}
+	}
+	return nil
+}
+
 func (c *conn) newNC(s *Server) (*nc, error) {
 	network := "tcp"
 	if strings.Contains(s.Host, "/") {
@@ -115,9 +128,6 @@ func (nc *nc) writestrings(strs ...string) {
 }
 
 func (nc *nc) writestring(s string) error {
-	if err := nc.SetDeadline(time.Now().Add(nc.cp.pollTimeout)); err != nil {
-		return errors.Wrap(err, "Failed SetDeadLine")
-	}
 	if _, err := nc.buffered.WriteString(s); err != nil {
 		return errors.Wrap(err, "Failed buffered.WriteString")
 	}
@@ -125,9 +135,6 @@ func (nc *nc) writestring(s string) error {
 }
 
 func (nc *nc) write(b []byte) error {
-	if err := nc.SetDeadline(time.Now().Add(nc.cp.pollTimeout)); err != nil {
-		return errors.Wrap(err, "Failed SetDeadLine")
-	}
 	if _, err := nc.buffered.Write(b); err != nil {
 		return errors.Wrap(err, "Failed buffered,Write")
 	}
@@ -135,9 +142,6 @@ func (nc *nc) write(b []byte) error {
 }
 
 func (nc *nc) flush() error {
-	if err := nc.SetDeadline(time.Now().Add(nc.cp.pollTimeout)); err != nil {
-		return errors.Wrap(err, "Failed SetDeadLine")
-	}
 	if err := nc.buffered.Flush(); err != nil {
 		return errors.Wrapf(ErrBadConn, "Failed buffered.Flush: %+v", err)
 	}
@@ -149,12 +153,9 @@ func (nc *nc) readline() (string, error) {
 		return "", errors.Wrap(err, "Failed flush")
 	}
 
-	if err := nc.SetDeadline(time.Now().Add(nc.cp.pollTimeout)); err != nil {
-		return "", errors.Wrap(err, "Failed SetDeadLine")
-	}
 	l, err := nc.buffered.ReadSlice('\n')
 	if err != nil {
-		return "", errors.Wrapf(ErrBadConn, "Failed bufferd.ReadLine: %+v", err)
+		return "", errors.Wrapf(ErrBadConn, "Failed bufferd.ReadSlice: %+v", err)
 	}
 	if err = handleError(string(l)); err != nil {
 		return "", err
