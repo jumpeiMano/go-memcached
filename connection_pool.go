@@ -217,7 +217,8 @@ func (cp *ConnectionPool) _conn(ctx context.Context, useFreeConn bool) (*conn, e
 			c.close()
 			return nil, ErrBadConn
 		}
-		return c, nil
+		err := c.setDeadline()
+		return c, err
 	}
 
 	if cp.maxOpen > 0 && cp.maxOpen <= cp.numOpen {
@@ -247,7 +248,11 @@ func (cp *ConnectionPool) _conn(ctx context.Context, useFreeConn bool) (*conn, e
 			if !ok {
 				return nil, ErrMemcachedClosed
 			}
-			return ret.conn, ret.err
+			if ret.err != nil {
+				return ret.conn, ret.err
+			}
+			err := ret.conn.setDeadline()
+			return ret.conn, err
 		}
 	}
 
@@ -261,7 +266,8 @@ func (cp *ConnectionPool) _conn(ctx context.Context, useFreeConn bool) (*conn, e
 		cp.maybeOpenNewConnections()
 		return nil, err
 	}
-	return newCn, nil
+	err = newCn.setDeadline()
+	return newCn, err
 }
 
 // SetConnMaxLifetime sets the maximum amount of time a connection may be reused.

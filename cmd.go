@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/pkg/errors"
 )
@@ -135,6 +136,10 @@ func (cp *ConnectionPool) Delete(noreply bool, keys ...string) (failedKeys []str
 	c.Lock()
 	defer c.Unlock()
 	c.reset()
+
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	ec := make(chan error, len(c.ncs))
 	// delete <key> [<time>] [noreply]\r\n
 	for _, key := range keys {
 		rawkey := cp.addPrefix(key)
@@ -142,35 +147,60 @@ func (cp *ConnectionPool) Delete(noreply bool, keys ...string) (failedKeys []str
 		if !ok {
 			return []string{}, errors.New("Failed GetNode")
 		}
-		nc, ok := c.ncs[node]
+		_nc, ok := c.ncs[node]
 		if !ok {
 			return []string{}, fmt.Errorf("Failed to get a connection: %s", node)
 		}
-		nc.writestrings("delete ", rawkey)
-		if noreply {
-			nc.writestring(" noreply")
+		_nc.count++
+		wg.Add(1)
+		go func(nc *nc, key string) {
+			defer wg.Done()
+			nc.mu.Lock()
+			defer nc.mu.Unlock()
+			nc.writestrings("delete ", rawkey)
+			if noreply {
+				nc.writestring(" noreply")
+				nc.writestrings("\r\n")
+				return
+			}
 			nc.writestrings("\r\n")
-			nc.count++
-			continue
-		}
-		nc.writestrings("\r\n")
-		reply, err1 := nc.readline()
-		if err1 != nil {
-			return []string{}, errors.Wrap(err1, "Failed readline")
-		}
-		if !strings.HasPrefix(reply, "DELETED") {
-			failedKeys = append(failedKeys, key)
-		}
+			reply, err1 := nc.readline()
+			if err1 != nil {
+				ec <- errors.Wrap(err1, "Failed readline")
+				return
+			}
+			if !strings.HasPrefix(reply, "DELETED") {
+				mu.Lock()
+				failedKeys = append(failedKeys, key)
+				mu.Unlock()
+			}
+			ec <- nil
+		}(_nc, key)
 	}
 	if noreply {
-		for _, nc := range c.ncs {
-			if nc.count == 0 {
+		for _, _nc := range c.ncs {
+			if _nc.count == 0 {
 				continue
 			}
-			err = nc.flush()
-			if err != nil {
-				return []string{}, errors.Wrap(err, "Failed flush")
-			}
+			wg.Add(1)
+			go func(nc *nc) {
+				defer wg.Done()
+				nc.mu.Lock()
+				defer nc.mu.Unlock()
+				if err = nc.flush(); err != nil {
+					ec <- errors.Wrap(err, "Failed flush")
+					return
+				}
+			}(_nc)
+		}
+	}
+	wg.Wait()
+	for _, nc := range c.ncs {
+		if nc.count == 0 {
+			continue
+		}
+		if err1 := <-ec; err1 != nil {
+			err = err1
 		}
 	}
 	return
@@ -281,55 +311,84 @@ func (cp *ConnectionPool) get(command string, keys []string) ([]*Item, error) {
 		nc.count++
 	}
 
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	ec := make(chan error, len(c.ncs))
+	for _, _nc := range c.ncs {
+		if _nc.count == 0 {
+			continue
+		}
+		wg.Add(1)
+		go func(nc *nc) {
+			defer wg.Done()
+			nc.mu.Lock()
+			defer nc.mu.Unlock()
+			nc.writestrings("\r\n")
+			header, err1 := nc.readline()
+			if err1 != nil {
+				ec <- errors.Wrap(err1, "Failed readline")
+				return
+			}
+			for strings.HasPrefix(header, "VALUE") {
+				// VALUE <key> <flags> <bytes> [<cas unique>]\r\n
+				chunks := strings.Split(header, " ")
+				if len(chunks) < 4 {
+					ec <- fmt.Errorf("Malformed response: %s", string(header))
+					return
+				}
+				var result Item
+				result.Key = cp.removePrefix(chunks[1])
+				flags64, err1 := strconv.ParseUint(chunks[2], 10, 16)
+				if err1 != nil {
+					ec <- errors.Wrap(err1, "Failed ParseUint")
+					return
+				}
+				result.Flags = uint16(flags64)
+				size, err1 := strconv.ParseUint(chunks[3], 10, 64)
+				if err1 != nil {
+					ec <- errors.Wrap(err1, "Failed ParseUint")
+					return
+				}
+				if len(chunks) == 5 {
+					result.Cas, err1 = strconv.ParseUint(chunks[4], 10, 64)
+					if err1 != nil {
+						ec <- errors.Wrap(err1, "Failed ParseUint")
+						return
+					}
+				}
+				// <data block>\r\n
+				b, err1 := nc.read(int(size) + 2)
+				if err1 != nil {
+					ec <- errors.Wrap(err1, "Failed read")
+					return
+				}
+				result.Value = b[:size]
+				mu.Lock()
+				results = append(results, &result)
+				mu.Unlock()
+				header, err1 = nc.readline()
+				if err1 != nil {
+					ec <- errors.Wrap(err1, "Failed readline")
+					return
+				}
+			}
+			if !strings.HasPrefix(header, "END") {
+				ec <- fmt.Errorf("Malformed response: %s", string(header))
+				return
+			}
+			ec <- nil
+		}(_nc)
+	}
+	wg.Wait()
 	for _, nc := range c.ncs {
 		if nc.count == 0 {
 			continue
 		}
-		nc.writestrings("\r\n")
-		header, err := nc.readline()
-		if err != nil {
-			return results, errors.Wrap(err, "Failed readline")
-		}
-		for strings.HasPrefix(header, "VALUE") {
-			// VALUE <key> <flags> <bytes> [<cas unique>]\r\n
-			chunks := strings.Split(header, " ")
-			if len(chunks) < 4 {
-				return results, fmt.Errorf("Malformed response: %s", string(header))
-			}
-			var result Item
-			result.Key = cp.removePrefix(chunks[1])
-			flags64, err := strconv.ParseUint(chunks[2], 10, 16)
-			if err != nil {
-				return results, errors.Wrap(err, "Failed ParseUint")
-			}
-			result.Flags = uint16(flags64)
-			size, err := strconv.ParseUint(chunks[3], 10, 64)
-			if err != nil {
-				return results, errors.Wrap(err, "Failed ParseUint")
-			}
-			if len(chunks) == 5 {
-				result.Cas, err = strconv.ParseUint(chunks[4], 10, 64)
-				if err != nil {
-					return results, errors.Wrap(err, "Failed ParseUint")
-				}
-			}
-			// <data block>\r\n
-			b, err := nc.read(int(size) + 2)
-			if err != nil {
-				return results, errors.Wrap(err, "Failed read")
-			}
-			result.Value = b[:size]
-			results = append(results, &result)
-			header, err = nc.readline()
-			if err != nil {
-				return results, errors.Wrap(err, "Failed readline")
-			}
-		}
-		if !strings.HasPrefix(header, "END") {
-			return results, fmt.Errorf("Malformed response: %s", string(header))
+		if err1 := <-ec; err1 != nil {
+			err = err1
 		}
 	}
-	return results, nil
+	return results, err
 }
 
 func (cp *ConnectionPool) store(command string, items []*Item, noreply bool) (failedKeys []string, err error) {
@@ -341,6 +400,10 @@ func (cp *ConnectionPool) store(command string, items []*Item, noreply bool) (fa
 		cp.putConn(c, err)
 	}()
 
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	ec := make(chan error, len(c.ncs))
+
 	c.Lock()
 	defer c.Unlock()
 	c.reset()
@@ -350,49 +413,70 @@ func (cp *ConnectionPool) store(command string, items []*Item, noreply bool) (fa
 		if !ok {
 			return []string{}, errors.New("Failed GetNode")
 		}
-		nc, ok := c.ncs[node]
+		_nc, ok := c.ncs[node]
 		if !ok {
 			return []string{}, fmt.Errorf("Failed to get a connection: %s", node)
 		}
-		// <command name> <key> <flags> <exptime> <bytes> [noreply]\r\n
-		nc.writestrings(command, " ", rawkey, " ")
-		nc.write(strconv.AppendUint(nil, uint64(item.Flags), 10))
-		nc.writestring(" ")
-		nc.write(strconv.AppendUint(nil, uint64(item.Exp), 10))
-		nc.writestring(" ")
-		nc.write(strconv.AppendInt(nil, int64(len(item.Value)), 10))
-		if item.Cas != 0 {
+		_nc.count++
+		wg.Add(1)
+		go func(nc *nc, item *Item) {
+			defer wg.Done()
+			nc.mu.Lock()
+			defer nc.mu.Unlock()
+			// <command name> <key> <flags> <exptime> <bytes> [noreply]\r\n
+			nc.writestrings(command, " ", rawkey, " ")
+			nc.write(strconv.AppendUint(nil, uint64(item.Flags), 10))
 			nc.writestring(" ")
-			nc.write(strconv.AppendUint(nil, item.Cas, 10))
-		}
-		if noreply {
-			nc.writestring(" noreply")
-		}
-		nc.writestring("\r\n")
-		// <data block>\r\n
-		nc.write(item.Value)
-		nc.writestring("\r\n")
-		if noreply {
-			nc.count++
-			continue
-		}
-		reply, err1 := nc.readline()
-		if err1 != nil {
-			return []string{}, errors.Wrap(err1, "Failed readline")
-		}
-		if !strings.HasPrefix(reply, "STORED") {
-			failedKeys = append(failedKeys, item.Key)
-		}
+			nc.write(strconv.AppendUint(nil, uint64(item.Exp), 10))
+			nc.writestring(" ")
+			nc.write(strconv.AppendInt(nil, int64(len(item.Value)), 10))
+			if item.Cas != 0 {
+				nc.writestring(" ")
+				nc.write(strconv.AppendUint(nil, item.Cas, 10))
+			}
+			if noreply {
+				nc.writestring(" noreply")
+			}
+			nc.writestring("\r\n")
+			// <data block>\r\n
+			nc.write(item.Value)
+			nc.writestring("\r\n")
+			if noreply {
+				return
+			}
+			reply, err1 := nc.readline()
+			if err1 != nil {
+				ec <- errors.Wrap(err1, "Failed readline")
+				return
+			}
+			if !strings.HasPrefix(reply, "STORED") {
+				mu.Lock()
+				failedKeys = append(failedKeys, item.Key)
+				mu.Unlock()
+			}
+			ec <- nil
+		}(_nc, item)
 	}
 	if noreply {
-		for _, nc := range c.ncs {
-			if nc.count == 0 {
+		for _, _nc := range c.ncs {
+			if _nc.count == 0 {
 				continue
 			}
-			err := nc.flush()
-			if err != nil {
-				return []string{}, errors.Wrap(err, "Failed flush")
-			}
+			go func(nc *nc) {
+				nc.mu.Lock()
+				defer nc.mu.Unlock()
+				ec <- nc.flush()
+			}(_nc)
+		}
+	}
+
+	wg.Wait()
+	for _, nc := range c.ncs {
+		if nc.count == 0 {
+			continue
+		}
+		if err1 := <-ec; err1 != nil {
+			err = err1
 		}
 	}
 	return
