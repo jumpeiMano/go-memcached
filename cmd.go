@@ -187,11 +187,7 @@ func (cp *ConnectionPool) Delete(noreply bool, keys ...string) (failedKeys []str
 				defer wg.Done()
 				nc.mu.Lock()
 				defer nc.mu.Unlock()
-				if err = nc.flush(); err != nil {
-					ec <- errors.Wrap(err, "Failed flush")
-					return
-				}
-				ec <- nil
+				ec <- nc.flush()
 			}(_nc)
 		}
 	}
