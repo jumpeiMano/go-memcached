@@ -44,21 +44,39 @@ func newConn(cp *ConnectionPool) (*conn, error) {
 		ncs:       make(map[string]*nc, ls),
 		createdAt: time.Now(),
 	}
+	var mu sync.Mutex
+	var err error
+	ec := make(chan error, len(cp.servers))
 	for _, s := range cp.servers {
-		_nc, err := c.newNC(&s)
-		if err == nil {
-			c.ncs[s.getNodeName()] = _nc
-			continue
-		}
-		if !c.cp.failover {
-			return nil, err
-		}
-		c.hashRing = c.hashRing.RemoveNode(s.getNodeName())
-		c.ncs[s.getNodeName()] = &nc{
-			isAlive: false,
+		go func(s Server) {
+			node := s.getNodeName()
+			_nc, err1 := c.newNC(&s)
+			if err1 == nil {
+				mu.Lock()
+				c.ncs[node] = _nc
+				mu.Unlock()
+				ec <- nil
+				return
+			}
+			if !c.cp.failover {
+				ec <- err1
+				return
+			}
+			c.removeNode(node)
+			mu.Lock()
+			c.ncs[node] = &nc{
+				isAlive: false,
+			}
+			mu.Unlock()
+			ec <- nil
+		}(s)
+	}
+	for _ = range cp.servers {
+		if err1 := <-ec; err1 != nil {
+			err = err1
 		}
 	}
-	return c, nil
+	return c, err
 }
 
 func (c *conn) reset() {
@@ -96,6 +114,12 @@ func (c *conn) setDeadline() error {
 		}
 	}
 	return nil
+}
+
+func (c *conn) removeNode(node string) {
+	c.Lock()
+	defer c.Unlock()
+	c.hashRing = c.hashRing.RemoveNode(node)
 }
 
 func (c *conn) newNC(s *Server) (*nc, error) {
