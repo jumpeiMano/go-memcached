@@ -71,7 +71,7 @@ func newConn(cp *ConnectionPool) (*conn, error) {
 			ec <- nil
 		}(s)
 	}
-	for _ = range cp.servers {
+	for range cp.servers {
 		if err1 := <-ec; err1 != nil {
 			err = err1
 		}
