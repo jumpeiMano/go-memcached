@@ -50,7 +50,7 @@ func newConn(cp *ConnectionPool) (*conn, error) {
 	for _, s := range cp.servers {
 		go func(s Server) {
 			node := s.getNodeName()
-			_nc, err1 := c.newNC(&s)
+			_nc, err1 := c.newNC(s)
 			if err1 == nil {
 				mu.Lock()
 				c.ncs[node] = _nc
@@ -122,7 +122,7 @@ func (c *conn) removeNode(node string) {
 	c.hashRing = c.hashRing.RemoveNode(node)
 }
 
-func (c *conn) newNC(s *Server) (*nc, error) {
+func (c *conn) newNC(s Server) (*nc, error) {
 	network := "tcp"
 	if strings.Contains(s.Host, "/") {
 		network = "unix"
