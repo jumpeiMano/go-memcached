@@ -276,36 +276,20 @@ func TestConnectionPool_Delete(t *testing.T) {
 			vs[i] = item.Value
 		}
 		assert.Equal(t, evs, vs)
-	}
-	test(false, []string{"Delete_1", "Delete_2"}, true, [][]byte{})
-	test(true, []string{"Delete_1", "Delete_2"}, true, [][]byte{})
-}
-
-func TestConnectionPool_Delete_Noreply(t *testing.T) {
-	items := []*Item{
-		{Key: "Delete_N_1", Value: []byte(`{"delete_n": 1}`), Exp: 1},
-		{Key: "Delete_N_2", Value: []byte(`{"delete_n": 2}`), Exp: 1},
-	}
-	if _, err := cp.Set(true, items...); err != nil {
-		t.Fatalf("Failed Set: %+v", err)
-	}
-	test := func(keys []string, eBool bool, evs [][]byte) {
-		failedKeys, err := cp.Delete(false, keys...)
-		if err != nil {
-			t.Fatalf("Failed Delete: %+v", err)
-		}
-		assert.Equal(t, eBool, len(failedKeys) < 1)
-		is, err := cp.Get(keys...)
+		_is, err := cp.Get(keys...)
 		if err != nil {
 			t.Fatalf("Failed Get: %+v", err)
 		}
-		vs := make([][]byte, len(is))
-		for i, item := range is {
-			vs[i] = item.Value
-		}
-		assert.Equal(t, evs, vs)
+		assert.Empty(t, _is)
 	}
-	test([]string{"Delete_N_1", "Delete_N_2"}, true, [][]byte{})
+	is := []*Item{
+		{Key: "Delete_1", Value: []byte{}, Exp: 1},
+		{Key: "Delete_2", Value: []byte{}, Exp: 1},
+	}
+	cp.Set(false, is...)
+	test(false, []string{"Delete_1", "Delete_2", "Delete_3"}, false, [][]byte{})
+	cp.Set(false, is...)
+	test(true, []string{"Delete_1", "Delete_2", "Delete_3"}, true, [][]byte{})
 }
 
 func TestConnectionPool_Stats(t *testing.T) {
