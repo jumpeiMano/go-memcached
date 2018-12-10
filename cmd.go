@@ -177,21 +177,19 @@ func (cp *ConnectionPool) Delete(noreply bool, keys ...string) (failedKeys []str
 			ec <- nil
 		}(_nc, key)
 	}
+	wg.Wait()
 	if noreply {
 		for _, _nc := range c.ncs {
 			if _nc.count == 0 {
 				continue
 			}
-			wg.Add(1)
 			go func(nc *nc) {
-				defer wg.Done()
 				nc.mu.Lock()
 				defer nc.mu.Unlock()
 				ec <- nc.flush()
 			}(_nc)
 		}
 	}
-	wg.Wait()
 	for _, nc := range c.ncs {
 		if nc.count == 0 {
 			continue
@@ -454,6 +452,7 @@ func (cp *ConnectionPool) store(command string, items []*Item, noreply bool) (fa
 			ec <- nil
 		}(_nc, item)
 	}
+	wg.Wait()
 	if noreply {
 		for _, _nc := range c.ncs {
 			if _nc.count == 0 {
@@ -467,7 +466,6 @@ func (cp *ConnectionPool) store(command string, items []*Item, noreply bool) (fa
 		}
 	}
 
-	wg.Wait()
 	for _, nc := range c.ncs {
 		if nc.count == 0 {
 			continue
