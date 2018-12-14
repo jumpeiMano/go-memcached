@@ -14,28 +14,30 @@ import (
 const connRequestQueueSize = 1000000
 
 const (
-	defaultPort           = 11211
-	defaultConnectTimeout = 1 * time.Second
-	defaultPollTimeout    = 1 * time.Second
+	defaultPort               = 11211
+	defaultConnectTimeout     = 1 * time.Second
+	defaultPollTimeout        = 1 * time.Second
+	defaultTryReconnectPeriod = 60 * time.Second
 )
 
 // ConnectionPool struct
 type ConnectionPool struct {
-	servers        Servers
-	prefix         string
-	connectTimeout time.Duration
-	pollTimeout    time.Duration
-	failover       bool
-	mu             sync.RWMutex
-	freeConns      []*conn
-	numOpen        int
-	openerCh       chan struct{}
-	connRequests   map[uint64]chan connRequest
-	nextRequest    uint64
-	maxLifetime    time.Duration // maximum amount of time a connection may be reused
-	maxOpen        int           // maximum amount of connection num. maxOpen <= 0 means unlimited.
-	cleanerCh      chan struct{}
-	closed         bool
+	servers            Servers
+	prefix             string
+	connectTimeout     time.Duration
+	pollTimeout        time.Duration
+	tryReconnectPeriod time.Duration
+	failover           bool
+	mu                 sync.RWMutex
+	freeConns          []*conn
+	numOpen            int
+	openerCh           chan struct{}
+	connRequests       map[uint64]chan connRequest
+	nextRequest        uint64
+	maxLifetime        time.Duration // maximum amount of time a connection may be reused
+	maxOpen            int           // maximum amount of connection num. maxOpen <= 0 means unlimited.
+	cleanerCh          chan struct{}
+	closed             bool
 }
 
 // Servers are slice of Server.
@@ -47,6 +49,15 @@ func (ss *Servers) getNodeNames() []string {
 		nodes[i] = s.getNodeName()
 	}
 	return nodes
+}
+
+func (ss *Servers) getByNode(node string) *Server {
+	for _, s := range *ss {
+		if s.getNodeName() == node {
+			return &s
+		}
+	}
+	return nil
 }
 
 // Server is the server's info of memcahced.
@@ -85,6 +96,7 @@ func New(servers Servers, prefix string) (cp *ConnectionPool) {
 	cp.connRequests = make(map[uint64]chan connRequest)
 	cp.connectTimeout = defaultConnectTimeout
 	cp.pollTimeout = defaultPollTimeout
+	cp.tryReconnectPeriod = defaultTryReconnectPeriod
 
 	go cp.opener()
 
@@ -217,6 +229,7 @@ func (cp *ConnectionPool) _conn(ctx context.Context, useFreeConn bool) (*conn, e
 			c.close()
 			return nil, ErrBadConn
 		}
+		c.tryReconnect()
 		err := c.setDeadline()
 		return c, err
 	}
@@ -251,6 +264,7 @@ func (cp *ConnectionPool) _conn(ctx context.Context, useFreeConn bool) (*conn, e
 			if ret.err != nil {
 				return ret.conn, ret.err
 			}
+			ret.conn.tryReconnect()
 			err := ret.conn.setDeadline()
 			return ret.conn, err
 		}
@@ -304,6 +318,13 @@ func (cp *ConnectionPool) SetPollTimeout(timeout time.Duration) {
 	cp.mu.Lock()
 	defer cp.mu.Unlock()
 	cp.pollTimeout = timeout
+}
+
+// SetTryReconnectPeriod sets the period of trying reconnect.
+func (cp *ConnectionPool) SetTryReconnectPeriod(period time.Duration) {
+	cp.mu.Lock()
+	defer cp.mu.Unlock()
+	cp.tryReconnectPeriod = period
 }
 
 // SetConnMaxOpen sets the maximum amount of opening connections.

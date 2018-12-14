@@ -15,10 +15,11 @@ import (
 type conn struct {
 	cp *ConnectionPool
 	sync.RWMutex
-	hashRing  *hashring.HashRing
-	ncs       map[string]*nc
-	createdAt time.Time
-	closed    bool
+	hashRing           *hashring.HashRing
+	ncs                map[string]*nc
+	createdAt          time.Time
+	closed             bool
+	nextTryReconnectAt time.Time
 }
 
 type nc struct {
@@ -38,11 +39,13 @@ var (
 
 func newConn(cp *ConnectionPool) (*conn, error) {
 	ls := len(cp.servers)
+	now := time.Now()
 	c := &conn{
-		cp:        cp,
-		hashRing:  hashring.New(cp.servers.getNodeNames()),
-		ncs:       make(map[string]*nc, ls),
-		createdAt: time.Now(),
+		cp:                 cp,
+		hashRing:           hashring.New(cp.servers.getNodeNames()),
+		ncs:                make(map[string]*nc, ls),
+		createdAt:          now,
+		nextTryReconnectAt: now,
 	}
 	var mu sync.Mutex
 	var err error
@@ -50,7 +53,7 @@ func newConn(cp *ConnectionPool) (*conn, error) {
 	for _, s := range cp.servers {
 		go func(s Server) {
 			node := s.getNodeName()
-			_nc, err1 := c.newNC(s)
+			_nc, err1 := c.newNC(&s)
 			if err1 == nil {
 				mu.Lock()
 				c.ncs[node] = _nc
@@ -75,6 +78,20 @@ func newConn(cp *ConnectionPool) (*conn, error) {
 		if err1 := <-ec; err1 != nil {
 			err = err1
 		}
+	}
+	if err != nil {
+		return c, err
+	}
+
+	var existsAlive bool
+	for _, nc := range c.ncs {
+		if nc.isAlive {
+			existsAlive = true
+			break
+		}
+	}
+	if !existsAlive {
+		return c, errors.New("There are any aliving connections")
 	}
 	return c, err
 }
@@ -122,7 +139,7 @@ func (c *conn) removeNode(node string) {
 	c.hashRing = c.hashRing.RemoveNode(node)
 }
 
-func (c *conn) newNC(s Server) (*nc, error) {
+func (c *conn) newNC(s *Server) (*nc, error) {
 	network := "tcp"
 	if strings.Contains(s.Host, "/") {
 		network = "unix"
@@ -143,6 +160,48 @@ func (c *conn) newNC(s Server) (*nc, error) {
 	}
 	_nc.isAlive = true
 	return &_nc, nil
+}
+
+func (c *conn) tryReconnect() {
+	if !c.cp.failover {
+		return
+	}
+	now := time.Now()
+	if now.Before(c.nextTryReconnectAt) {
+		return
+	}
+	defer func() {
+		c.Lock()
+		c.nextTryReconnectAt = now.Add(c.cp.tryReconnectPeriod)
+		c.Unlock()
+	}()
+	notAliveNodes := make([]string, 0, len(c.ncs))
+	for node, nc := range c.ncs {
+		if !nc.isAlive {
+			notAliveNodes = append(notAliveNodes, node)
+		}
+	}
+	if len(notAliveNodes) == 0 {
+		return
+	}
+	for _, n := range notAliveNodes {
+		_s := c.cp.servers.getByNode(n)
+		if _s == nil {
+			continue
+		}
+		go func(s *Server, node string) {
+			nc, err := c.newNC(s)
+			if err != nil {
+				return
+			}
+			if nc.isAlive {
+				c.Lock()
+				defer c.Unlock()
+				c.ncs[node] = nc
+				c.hashRing = c.hashRing.AddNode(node)
+			}
+		}(_s, n)
+	}
 }
 
 func (nc *nc) writestrings(strs ...string) {
