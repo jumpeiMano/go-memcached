@@ -35,6 +35,7 @@ type nc struct {
 var (
 	ErrMemcachedClosed = errors.New("memcached is closed")
 	ErrBadConn         = errors.New("bad conn")
+	ErrNotFound        = errors.New("not found")
 )
 
 func newConn(cp *ConnectionPool) (*conn, error) {

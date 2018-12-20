@@ -28,7 +28,7 @@ type Item struct {
 
 // Get returns cached data for given keys.
 func (cp *ConnectionPool) Get(keys ...string) (results []*Item, err error) {
-	results, err = cp.get("get", keys)
+	results, err = cp.getOrGat("get", 0, keys)
 	return
 }
 
@@ -88,7 +88,71 @@ func (cp *ConnectionPool) GetOrSetMulti(keys []string, cb func(keys []string) ([
 // for using with CAS. Gets returns a CAS identifier with the item. If
 // the item's CAS value has changed since you Gets'ed it, it will not be stored.
 func (cp *ConnectionPool) Gets(keys ...string) (results []*Item, err error) {
-	results, err = cp.get("gets", keys)
+	results, err = cp.getOrGat("gets", 0, keys)
+	return
+}
+
+// Gat is used to fetch items and update the expiration time of an existing items.
+func (cp *ConnectionPool) Gat(exp int64, keys ...string) (results []*Item, err error) {
+	results, err = cp.getOrGat("gat", exp, keys)
+	return
+}
+
+// GatOrSet gets from memcached via `gat`, and if no hit, Set value gotten by callback, and return the value
+func (cp *ConnectionPool) GatOrSet(key string, exp int64, cb func(key string) (*Item, error)) (*Item, error) {
+	items, err := cp.Gat(exp, key)
+	if err != nil {
+		return nil, errors.Wrap(err, "Failed Gat")
+	}
+	if len(items) > 0 {
+		return items[0], nil
+	}
+	item, err := cb(key)
+	if err != nil {
+		return nil, errors.Wrap(err, "Failed cb")
+	}
+	_, err = cp.Set(false, item)
+	return item, errors.Wrap(err, "Failed Set")
+}
+
+// GatOrSetMulti gets from memcached via `gat`, and if no hit, Set value gotten by callback, and return the value
+func (cp *ConnectionPool) GatOrSetMulti(keys []string, exp int64, cb func(keys []string) ([]*Item, error)) ([]*Item, error) {
+	items, err := cp.Gat(exp, keys...)
+	if err != nil {
+		return []*Item{}, errors.Wrap(err, "Failed Gat")
+	}
+	gotNum := len(items)
+	gotMap := make(map[string]struct{}, gotNum)
+	for _, item := range items {
+		gotMap[item.Key] = struct{}{}
+	}
+	remainKeys := make([]string, 0, len(keys)-gotNum)
+	for _, key := range keys {
+		if _, ok := gotMap[key]; !ok {
+			remainKeys = append(remainKeys, key)
+		}
+	}
+	if len(remainKeys) == 0 {
+		return items, nil
+	}
+
+	cbItems, err := cb(remainKeys)
+	if err != nil {
+		return []*Item{}, errors.Wrap(err, "Failed cb")
+	}
+	if len(cbItems) == 0 {
+		return items, nil
+	}
+	if _, err = cp.Set(true, cbItems...); err != nil {
+		return items, errors.Wrap(err, "Failed Set")
+	}
+	items = append(items, cbItems...)
+	return items, nil
+}
+
+// Gats is used to fetch items and update the expiration time of an existing items.
+func (cp *ConnectionPool) Gats(exp int64, keys ...string) (results []*Item, err error) {
+	results, err = cp.getOrGat("gats", exp, keys)
 	return
 }
 
@@ -121,6 +185,50 @@ func (cp *ConnectionPool) Prepend(noreply bool, items ...*Item) (failedKeys []st
 // Cas stores the value only if no one else has updated the data since you read it last.
 func (cp *ConnectionPool) Cas(noreply bool, items ...*Item) (failedKeys []string, err error) {
 	return cp.store("cas", items, noreply)
+}
+
+// Touch is used to update the expiration time of an existing item without fetching it.
+func (cp *ConnectionPool) Touch(key string, exp int64, noreply bool) error {
+	c, err := cp.conn(context.Background())
+	if err != nil {
+		return errors.Wrap(err, "Failed cp.conn")
+	}
+	defer func() {
+		cp.putConn(c, err)
+	}()
+
+	c.Lock()
+	defer c.Unlock()
+
+	// touch <key> <exptime> [noreply]\r\n
+	rawkey := cp.addPrefix(key)
+	node, ok := c.hashRing.GetNode(rawkey)
+	if !ok {
+		return errors.New("Failed GetNode")
+	}
+	nc, ok := c.ncs[node]
+	if !ok {
+		return fmt.Errorf("Failed to get a connection: %s", node)
+	}
+	nc.writestrings("touch ", rawkey, " ")
+	nc.write(strconv.AppendUint(nil, uint64(exp), 10))
+	if noreply {
+		nc.writestring(" noreply ")
+		nc.writestrings("\r\n")
+		return nil
+	}
+	nc.writestrings("\r\n")
+	reply, err := nc.readline()
+	if err != nil {
+		return errors.Wrap(err, "Failed readline")
+	}
+	if strings.HasPrefix(reply, "NOT_FOUND") {
+		return ErrNotFound
+	}
+	if !strings.HasPrefix(reply, "TOUCHED") {
+		return fmt.Errorf("Malformed response: %s", string(reply))
+	}
+	return nil
 }
 
 // Delete delete the value for the specified cache key.
@@ -271,7 +379,7 @@ func (cp *ConnectionPool) Stats(argument string) (resultMap map[string][]byte, e
 	return resultMap, err
 }
 
-func (cp *ConnectionPool) get(command string, keys []string) ([]*Item, error) {
+func (cp *ConnectionPool) getOrGat(command string, exp int64, keys []string) ([]*Item, error) {
 	var results []*Item
 	c, err := cp.conn(context.Background())
 	if err != nil {
@@ -289,6 +397,7 @@ func (cp *ConnectionPool) get(command string, keys []string) ([]*Item, error) {
 		return results, nil
 	}
 	// get(s) <key>*\r\n
+	// gat(s) <exp> <key>+\r\n
 	for _, key := range keys {
 		rawkey := cp.addPrefix(key)
 		node, ok := c.hashRing.GetNode(rawkey)
@@ -301,6 +410,9 @@ func (cp *ConnectionPool) get(command string, keys []string) ([]*Item, error) {
 		}
 		if nc.count == 0 {
 			nc.writestrings(command)
+			if exp > 0 {
+				nc.writestrings(" ", fmt.Sprintf("%d", exp))
+			}
 		}
 		nc.writestrings(" ", rawkey)
 		nc.count++
