@@ -349,6 +349,25 @@ func TestConnectionPool_Cas(t *testing.T) {
 	test("before", &Item{Key: "Cas_2", Value: []byte(`{"cas": 22}`), Exp: 1}, false, [][]byte{[]byte(`{"cas": 2}update`)})
 }
 
+func TestConnectionPool_Touch(t *testing.T) {
+	if _, err := cp.Set(true, &Item{Key: "touch_1", Value: []byte(`{"id": 1, "test": "ok"}`), Exp: 1}); err != nil {
+		t.Fatalf("Failed Set: %+v", err)
+	}
+	if err := cp.Touch("touch_1", 1, false); err != nil {
+		t.Fatalf("Failed Touch: %+v", err)
+	}
+	// noreply
+	if err := cp.Touch("touch_1", 1, true); err != nil {
+		t.Fatalf("Failed Touch: %+v", err)
+	}
+	// not found
+	err := cp.Touch("touch_not_found", 1, false)
+	assert.Equal(t, ErrNotFound, err)
+	// not found (noreply)
+	err = cp.Touch("touch_not_found_no_reply", 1, true)
+	assert.Nil(t, err)
+}
+
 func TestConnectionPool_Delete(t *testing.T) {
 	items := []*Item{
 		{Key: "Delete_1", Value: []byte(`{"delete": 1}`), Exp: 1},

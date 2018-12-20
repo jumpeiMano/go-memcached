@@ -187,6 +187,50 @@ func (cp *ConnectionPool) Cas(noreply bool, items ...*Item) (failedKeys []string
 	return cp.store("cas", items, noreply)
 }
 
+// Touch is used to update the expiration time of an existing item without fetching it.
+func (cp *ConnectionPool) Touch(key string, exp int64, noreply bool) error {
+	c, err := cp.conn(context.Background())
+	if err != nil {
+		return errors.Wrap(err, "Failed cp.conn")
+	}
+	defer func() {
+		cp.putConn(c, err)
+	}()
+
+	c.Lock()
+	defer c.Unlock()
+
+	// touch <key> <exptime> [noreply]\r\n
+	rawkey := cp.addPrefix(key)
+	node, ok := c.hashRing.GetNode(rawkey)
+	if !ok {
+		return errors.New("Failed GetNode")
+	}
+	nc, ok := c.ncs[node]
+	if !ok {
+		return fmt.Errorf("Failed to get a connection: %s", node)
+	}
+	nc.writestrings("touch ", rawkey, " ")
+	nc.write(strconv.AppendUint(nil, uint64(exp), 10))
+	if noreply {
+		nc.writestring(" noreply ")
+		nc.writestrings("\r\n")
+		return nil
+	}
+	nc.writestrings("\r\n")
+	reply, err := nc.readline()
+	if err != nil {
+		return errors.Wrap(err, "Failed readline")
+	}
+	if strings.HasPrefix(reply, "NOT_FOUND") {
+		return ErrNotFound
+	}
+	if !strings.HasPrefix(reply, "TOUCHED") {
+		return fmt.Errorf("Malformed response: %s", string(reply))
+	}
+	return nil
+}
+
 // Delete delete the value for the specified cache key.
 func (cp *ConnectionPool) Delete(noreply bool, keys ...string) (failedKeys []string, err error) {
 	c, err := cp.conn(context.Background())
