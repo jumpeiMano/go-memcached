@@ -215,7 +215,8 @@ func (cp *ConnectionPool) Touch(key string, exp int64, noreply bool) error {
 	if noreply {
 		nc.writestring(" noreply ")
 		nc.writestrings("\r\n")
-		return nil
+		err = nc.flush()
+		return err
 	}
 	nc.writestrings("\r\n")
 	reply, err := nc.readline()
