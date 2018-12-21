@@ -412,6 +412,7 @@ func (cp *ConnectionPool) getOrGat(command string, exp int64, keys []string) ([]
 		if nc.count == 0 {
 			nc.writestrings(command)
 			if exp > 0 {
+				nc.writestring(" ")
 				nc.write(strconv.AppendUint(nil, uint64(exp), 10))
 			}
 		}
