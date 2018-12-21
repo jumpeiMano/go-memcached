@@ -215,7 +215,8 @@ func (cp *ConnectionPool) Touch(key string, exp int64, noreply bool) error {
 	if noreply {
 		nc.writestring(" noreply ")
 		nc.writestrings("\r\n")
-		return nil
+		err = nc.flush()
+		return err
 	}
 	nc.writestrings("\r\n")
 	reply, err := nc.readline()
@@ -411,7 +412,8 @@ func (cp *ConnectionPool) getOrGat(command string, exp int64, keys []string) ([]
 		if nc.count == 0 {
 			nc.writestrings(command)
 			if exp > 0 {
-				nc.writestrings(" ", fmt.Sprintf("%d", exp))
+				nc.writestring(" ")
+				nc.write(strconv.AppendUint(nil, uint64(exp), 10))
 			}
 		}
 		nc.writestrings(" ", rawkey)
