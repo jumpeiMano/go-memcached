@@ -18,6 +18,7 @@ const (
 	defaultConnectTimeout     = 1 * time.Second
 	defaultPollTimeout        = 1 * time.Second
 	defaultTryReconnectPeriod = 60 * time.Second
+	defaultKeepAlivePeriod    = 60 * time.Second
 )
 
 // ConnectionPool struct
@@ -27,6 +28,7 @@ type ConnectionPool struct {
 	connectTimeout     time.Duration
 	pollTimeout        time.Duration
 	tryReconnectPeriod time.Duration
+	keepAlivePeriod    time.Duration
 	failover           bool
 	mu                 sync.RWMutex
 	freeConns          []*conn
@@ -97,6 +99,7 @@ func New(servers Servers, prefix string) (cp *ConnectionPool) {
 	cp.connectTimeout = defaultConnectTimeout
 	cp.pollTimeout = defaultPollTimeout
 	cp.tryReconnectPeriod = defaultTryReconnectPeriod
+	cp.keepAlivePeriod = defaultKeepAlivePeriod
 
 	go cp.opener()
 
@@ -325,6 +328,13 @@ func (cp *ConnectionPool) SetTryReconnectPeriod(period time.Duration) {
 	cp.mu.Lock()
 	defer cp.mu.Unlock()
 	cp.tryReconnectPeriod = period
+}
+
+// SetKeepAlivePeriod sets the period of keep alive.
+func (cp *ConnectionPool) SetKeepAlivePeriod(period time.Duration) {
+	cp.mu.Lock()
+	defer cp.mu.Unlock()
+	cp.keepAlivePeriod = period
 }
 
 // SetConnMaxOpen sets the maximum amount of opening connections.
