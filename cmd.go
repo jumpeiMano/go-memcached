@@ -497,7 +497,22 @@ func (cp *ConnectionPool) getOrGat(command string, exp int64, keys []string) ([]
 			err = err1
 		}
 	}
-	return results, err
+	if err != nil {
+		return results, err
+	}
+
+	// sort
+	resultMap := make(map[string]*Item, len(results))
+	for _, result := range results {
+		resultMap[result.Key] = result
+	}
+	_results := make([]*Item, 0, len(results))
+	for _, k := range keys {
+		if r, ok := resultMap[k]; ok {
+			_results = append(_results, r)
+		}
+	}
+	return _results, nil
 }
 
 func (cp *ConnectionPool) store(command string, items []*Item, noreply bool) (failedKeys []string, err error) {
