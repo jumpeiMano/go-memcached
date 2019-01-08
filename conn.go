@@ -153,7 +153,7 @@ func (c *conn) newNC(s *Server) (*nc, error) {
 	}
 	if tcpconn, ok := _nc.Conn.(*net.TCPConn); ok {
 		tcpconn.SetKeepAlive(true)
-		tcpconn.SetKeepAlivePeriod(1 * time.Minute)
+		tcpconn.SetKeepAlivePeriod(c.cp.keepAlivePeriod)
 	}
 	_nc.buffered = bufio.ReadWriter{
 		Reader: bufio.NewReader(&_nc),
