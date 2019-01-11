@@ -10,11 +10,16 @@ import (
 	"github.com/pkg/errors"
 )
 
+const (
+	maxKeyLength = 250
+)
+
 // errors
 var (
 	ErrNonexistentCommand = errors.New("nonexiststent command error")
 	ErrClient             = errors.New("client error")
 	ErrServer             = errors.New("server error")
+	ErrOverMaxKeyLength   = errors.New("key's length is too long")
 )
 
 // Item gives the cached data.
@@ -400,6 +405,12 @@ func (cp *ConnectionPool) getOrGat(command string, exp int64, keys []string) ([]
 	// get(s) <key>*\r\n
 	// gat(s) <exp> <key>+\r\n
 	for _, key := range keys {
+		if key == "" {
+			continue
+		}
+		if len(key) > maxKeyLength {
+			return results, ErrOverMaxKeyLength
+		}
 		rawkey := cp.addPrefix(key)
 		node, ok := c.hashRing.GetNode(rawkey)
 		if !ok {
@@ -532,6 +543,12 @@ func (cp *ConnectionPool) store(command string, items []*Item, noreply bool) (fa
 	defer c.Unlock()
 	c.reset()
 	for _, item := range items {
+		if item.Key == "" {
+			continue
+		}
+		if len(item.Key) > maxKeyLength {
+			return []string{}, ErrOverMaxKeyLength
+		}
 		rawkey := cp.addPrefix(item.Key)
 		node, ok := c.hashRing.GetNode(rawkey)
 		if !ok {
