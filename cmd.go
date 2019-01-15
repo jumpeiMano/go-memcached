@@ -254,6 +254,9 @@ func (cp *ConnectionPool) Delete(noreply bool, keys ...string) (failedKeys []str
 	var mu sync.Mutex
 	var wg sync.WaitGroup
 	ec := make(chan error, len(c.ncs))
+	if !noreply {
+		ec = make(chan error, len(keys))
+	}
 	// delete <key> [<time>] [noreply]\r\n
 	for _, key := range keys {
 		rawkey := cp.addPrefix(key)
@@ -308,8 +311,16 @@ func (cp *ConnectionPool) Delete(noreply bool, keys ...string) (failedKeys []str
 		if nc.count == 0 {
 			continue
 		}
-		if err1 := <-ec; err1 != nil {
-			err = err1
+		if noreply {
+			if err1 := <-ec; err1 != nil {
+				err = err1
+			}
+		} else {
+			for i := 0; i < nc.count; i++ {
+				if err1 := <-ec; err1 != nil {
+					err = err1
+				}
+			}
 		}
 	}
 	return
@@ -538,6 +549,9 @@ func (cp *ConnectionPool) store(command string, items []*Item, noreply bool) (fa
 	var mu sync.Mutex
 	var wg sync.WaitGroup
 	ec := make(chan error, len(c.ncs))
+	if !noreply {
+		ec = make(chan error, len(items))
+	}
 
 	c.Lock()
 	defer c.Unlock()
@@ -616,8 +630,16 @@ func (cp *ConnectionPool) store(command string, items []*Item, noreply bool) (fa
 		if nc.count == 0 {
 			continue
 		}
-		if err1 := <-ec; err1 != nil {
-			err = err1
+		if noreply {
+			if err1 := <-ec; err1 != nil {
+				err = err1
+			}
+		} else {
+			for i := 0; i < nc.count; i++ {
+				if err1 := <-ec; err1 != nil {
+					err = err1
+				}
+			}
 		}
 	}
 	return
