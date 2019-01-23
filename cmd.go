@@ -20,6 +20,7 @@ var (
 	ErrClient             = errors.New("client error")
 	ErrServer             = errors.New("server error")
 	ErrOverMaxKeyLength   = errors.New("key's length is too long")
+	ErrCanceldByContext   = errors.New("canceled by context")
 )
 
 // Item gives the cached data.
@@ -239,7 +240,9 @@ func (cp *ConnectionPool) Touch(key string, exp int64, noreply bool) error {
 
 // Delete delete the value for the specified cache key.
 func (cp *ConnectionPool) Delete(noreply bool, keys ...string) (failedKeys []string, err error) {
-	c, err := cp.conn(context.Background())
+	ctx, cancel := context.WithTimeout(context.Background(), cp.pollTimeout)
+	defer cancel()
+	c, err := cp.conn(ctx)
 	if err != nil {
 		return []string{}, errors.Wrap(err, "Failed cp.conn")
 	}
@@ -312,13 +315,25 @@ func (cp *ConnectionPool) Delete(noreply bool, keys ...string) (failedKeys []str
 			continue
 		}
 		if noreply {
-			if err1 := <-ec; err1 != nil {
-				err = err1
+			select {
+			case <-ctx.Done():
+				err = ErrCanceldByContext
+				return
+			case err = <-ec:
+				if err != nil {
+					return
+				}
 			}
 		} else {
 			for i := 0; i < nc.count; i++ {
-				if err1 := <-ec; err1 != nil {
-					err = err1
+				select {
+				case <-ctx.Done():
+					err = ErrCanceldByContext
+					return
+				case err = <-ec:
+					if err != nil {
+						return
+					}
 				}
 			}
 		}
@@ -398,7 +413,9 @@ func (cp *ConnectionPool) Stats(argument string) (resultMap map[string][]byte, e
 
 func (cp *ConnectionPool) getOrGat(command string, exp int64, keys []string) ([]*Item, error) {
 	var results []*Item
-	c, err := cp.conn(context.Background())
+	ctx, cancel := context.WithTimeout(context.Background(), cp.pollTimeout)
+	defer cancel()
+	c, err := cp.conn(ctx)
 	if err != nil {
 		return results, err
 	}
@@ -515,8 +532,14 @@ func (cp *ConnectionPool) getOrGat(command string, exp int64, keys []string) ([]
 		if nc.count == 0 {
 			continue
 		}
-		if err1 := <-ec; err1 != nil {
-			err = err1
+		select {
+		case <-ctx.Done():
+			err = ErrCanceldByContext
+			return results, err
+		case err = <-ec:
+			if err != nil {
+				return results, err
+			}
 		}
 	}
 	if err != nil {
@@ -538,7 +561,9 @@ func (cp *ConnectionPool) getOrGat(command string, exp int64, keys []string) ([]
 }
 
 func (cp *ConnectionPool) store(command string, items []*Item, noreply bool) (failedKeys []string, err error) {
-	c, err := cp.conn(context.Background())
+	ctx, cancel := context.WithTimeout(context.Background(), cp.pollTimeout)
+	defer cancel()
+	c, err := cp.conn(ctx)
 	if err != nil {
 		return []string{}, errors.Wrap(err, "Failed cp.conn")
 	}
@@ -631,13 +656,25 @@ func (cp *ConnectionPool) store(command string, items []*Item, noreply bool) (fa
 			continue
 		}
 		if noreply {
-			if err1 := <-ec; err1 != nil {
-				err = err1
+			select {
+			case <-ctx.Done():
+				err = ErrCanceldByContext
+				return
+			case err = <-ec:
+				if err != nil {
+					return
+				}
 			}
 		} else {
 			for i := 0; i < nc.count; i++ {
-				if err1 := <-ec; err1 != nil {
-					err = err1
+				select {
+				case <-ctx.Done():
+					err = ErrCanceldByContext
+					return
+				case err = <-ec:
+					if err != nil {
+						return
+					}
 				}
 			}
 		}
