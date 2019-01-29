@@ -12,6 +12,7 @@ import (
 
 const (
 	maxKeyLength = 250
+	gatMaxKeyNum = 50
 )
 
 // errors
@@ -100,7 +101,18 @@ func (cp *ConnectionPool) Gets(keys ...string) (results []*Item, err error) {
 
 // Gat is used to fetch items and update the expiration time of an existing items.
 func (cp *ConnectionPool) Gat(exp int64, keys ...string) (results []*Item, err error) {
-	results, err = cp.getOrGat("gat", exp, keys)
+	keylen := len(keys)
+	for i := 0; keylen > i*gatMaxKeyNum; i++ {
+		limit := (i + 1) * gatMaxKeyNum
+		if keylen < limit {
+			limit = keylen
+		}
+		_results, err1 := cp.getOrGat("gat", exp, keys[i*gatMaxKeyNum:limit])
+		if err1 != nil {
+			return results, err1
+		}
+		results = append(results, _results...)
+	}
 	return
 }
 
