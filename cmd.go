@@ -245,7 +245,7 @@ func (cp *ConnectionPool) Touch(key string, exp int64, noreply bool) error {
 		return ErrNotFound
 	}
 	if !strings.HasPrefix(reply, "TOUCHED") {
-		return fmt.Errorf("Malformed response: %s", string(reply))
+		return errors.Wrapf(ErrBadConn, "Malformed response: %s", string(reply))
 	}
 	return nil
 }
@@ -493,7 +493,7 @@ func (cp *ConnectionPool) getOrGat(command string, exp int64, keys []string) ([]
 				// VALUE <key> <flags> <bytes> [<cas unique>]\r\n
 				chunks := strings.Split(header, " ")
 				if len(chunks) < 4 {
-					ec <- fmt.Errorf("Malformed response: %s", string(header))
+					ec <- errors.Wrapf(ErrBadConn, "Malformed response: %s", string(header))
 					return
 				}
 				var result Item
@@ -533,7 +533,7 @@ func (cp *ConnectionPool) getOrGat(command string, exp int64, keys []string) ([]
 				}
 			}
 			if !strings.HasPrefix(header, "END") {
-				ec <- fmt.Errorf("Malformed response: %s", string(header))
+				ec <- errors.Wrapf(ErrBadConn, "Malformed response: %s", string(header))
 				return
 			}
 			ec <- nil
