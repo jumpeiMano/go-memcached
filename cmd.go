@@ -693,19 +693,3 @@ func (cp *ConnectionPool) store(command string, items []*Item, noreply bool) (fa
 	}
 	return
 }
-
-func handleError(s string) error {
-	if !strings.Contains(s, "ERROR") {
-		return nil
-	}
-	if s == "ERROR" {
-		return ErrNonexistentCommand
-	}
-	if strings.HasPrefix(s, "CLIENT_ERROR") {
-		return ErrClient
-	}
-	if strings.HasPrefix(s, "SERVER_ERROR") {
-		return ErrServer
-	}
-	return fmt.Errorf("Error has occured: %s", s)
-}

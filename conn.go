@@ -263,3 +263,16 @@ func (nc *nc) read(count int) ([]byte, error) {
 	}
 	return b, nil
 }
+
+func handleError(s string) error {
+	if s == "ERROR" {
+		return ErrNonexistentCommand
+	}
+	if strings.HasPrefix(s, "CLIENT_ERROR") {
+		return ErrClient
+	}
+	if strings.HasPrefix(s, "SERVER_ERROR") {
+		return ErrServer
+	}
+	return nil
+}
