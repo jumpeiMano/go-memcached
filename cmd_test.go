@@ -1,6 +1,7 @@
 package memcached
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -103,8 +104,8 @@ func TestConnectionPool_Gat(t *testing.T) {
 	if _, err := cp.Set(false, &Item{Key: "Gat_1", Value: []byte(`{"gat": 1}`), Exp: 1}); err != nil {
 		t.Fatalf("Failed Set: %+v", err)
 	}
-	test := func(key string, exp int64, evs [][]byte) {
-		is, err := cp.Gat(exp, key)
+	test := func(keys []string, exp int64, evs [][]byte) {
+		is, err := cp.Gat(exp, keys...)
 		if err != nil {
 			t.Fatalf("Failed Gat: %+v", err)
 		}
@@ -114,8 +115,13 @@ func TestConnectionPool_Gat(t *testing.T) {
 		}
 		assert.Equal(t, evs, vs)
 	}
-	test("Gat_1", 1, [][]byte{[]byte(`{"gat": 1}`)})
-	test("Gat_2", 1, [][]byte{})
+	test([]string{"Gat_1"}, 1, [][]byte{[]byte(`{"gat": 1}`)})
+	test([]string{"Gat_2"}, 1, [][]byte{})
+	keys := make([]string, 201)
+	for i := 0; i < 201; i++ {
+		keys[i] = fmt.Sprintf("Gat_%d", i)
+	}
+	test(keys, 2, [][]byte{[]byte(`{"gat": 1}`)})
 }
 
 func TestConnectionPool_GatOrSet(t *testing.T) {
