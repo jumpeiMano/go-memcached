@@ -161,9 +161,7 @@ func (cp *ConnectionPool) openNewConnection() {
 
 func (cp *ConnectionPool) putConn(c *conn, err error) error {
 	cp.mu.Lock()
-	if errors.Cause(err) == ErrBadConn ||
-		errors.Cause(err) == ErrServer ||
-		errors.Cause(err) == ErrCanceldByContext ||
+	if needCloseConn(err) ||
 		!cp.putConnLocked(c, nil) {
 		cp.mu.Unlock()
 		c.close()
@@ -464,4 +462,13 @@ func (cp *ConnectionPool) Close() error {
 	cp.mu.Unlock()
 
 	return err
+}
+
+func needCloseConn(err error) bool {
+	errcouse := errors.Cause(err)
+	return errcouse == ErrBadConn ||
+		errcouse == ErrServer ||
+		errcouse == ErrCanceldByContext ||
+		errcouse == context.DeadlineExceeded ||
+		errcouse == context.Canceled
 }
