@@ -27,6 +27,7 @@ type ConnectionPool struct {
 	prefix             string
 	connectTimeout     time.Duration
 	pollTimeout        time.Duration
+	cancelTimeout      time.Duration
 	tryReconnectPeriod time.Duration
 	keepAlivePeriod    time.Duration
 	failover           bool
@@ -98,6 +99,7 @@ func New(servers Servers, prefix string) (cp *ConnectionPool) {
 	cp.connRequests = make(map[uint64]chan connRequest)
 	cp.connectTimeout = defaultConnectTimeout
 	cp.pollTimeout = defaultPollTimeout
+	cp.cancelTimeout = defaultPollTimeout + (3 * time.Second)
 	cp.tryReconnectPeriod = defaultTryReconnectPeriod
 	cp.keepAlivePeriod = defaultKeepAlivePeriod
 
@@ -322,6 +324,7 @@ func (cp *ConnectionPool) SetPollTimeout(timeout time.Duration) {
 	cp.mu.Lock()
 	defer cp.mu.Unlock()
 	cp.pollTimeout = timeout
+	cp.cancelTimeout = timeout + (3 * time.Second)
 }
 
 // SetTryReconnectPeriod sets the period of trying reconnect.
