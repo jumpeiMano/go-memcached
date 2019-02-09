@@ -429,7 +429,7 @@ func (cp *ConnectionPool) getOrGat(command string, exp int64, keys []string) ([]
 	defer cancel()
 	c, err := cp.conn(ctx)
 	if err != nil {
-		return results, err
+		return results, errors.Wrap(err, "Failed cp.conn")
 	}
 	defer func() {
 		cp.putConn(c, err)
