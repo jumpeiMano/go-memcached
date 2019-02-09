@@ -19,6 +19,8 @@ const (
 	defaultPollTimeout        = 1 * time.Second
 	defaultTryReconnectPeriod = 60 * time.Second
 	defaultKeepAlivePeriod    = 60 * time.Second
+
+	contextDeadlineExceededErrorString = "context deadline exceeded"
 )
 
 // ConnectionPool struct
@@ -468,10 +470,14 @@ func (cp *ConnectionPool) Close() error {
 }
 
 func needCloseConn(err error) bool {
+	if err == nil {
+		return false
+	}
 	errcouse := errors.Cause(err)
 	return errcouse == ErrBadConn ||
 		errcouse == ErrServer ||
 		errcouse == ErrCanceldByContext ||
 		errcouse == context.DeadlineExceeded ||
-		errcouse == context.Canceled
+		errcouse == context.Canceled ||
+		errcouse.Error() == contextDeadlineExceededErrorString
 }
