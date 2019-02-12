@@ -252,8 +252,7 @@ func (cp *ConnectionPool) Touch(key string, exp int64, noreply bool) error {
 
 // Delete delete the value for the specified cache key.
 func (cp *ConnectionPool) Delete(noreply bool, keys ...string) (failedKeys []string, err error) {
-	ctx, cancel := context.WithTimeout(context.Background(), cp.cancelTimeout)
-	defer cancel()
+	ctx := context.Background()
 	c, err := cp.conn(ctx)
 	if err != nil {
 		return []string{}, errors.Wrap(err, "Failed cp.conn")
@@ -261,6 +260,9 @@ func (cp *ConnectionPool) Delete(noreply bool, keys ...string) (failedKeys []str
 	defer func() {
 		cp.putConn(c, err)
 	}()
+
+	ctx, cancel := context.WithTimeout(ctx, cp.cancelTimeout)
+	defer cancel()
 
 	c.Lock()
 	defer c.Unlock()
@@ -425,8 +427,7 @@ func (cp *ConnectionPool) Stats(argument string) (resultMap map[string][]byte, e
 
 func (cp *ConnectionPool) getOrGat(command string, exp int64, keys []string) ([]*Item, error) {
 	var results []*Item
-	ctx, cancel := context.WithTimeout(context.Background(), cp.cancelTimeout)
-	defer cancel()
+	ctx := context.Background()
 	c, err := cp.conn(ctx)
 	if err != nil {
 		return results, errors.Wrap(err, "Failed cp.conn")
@@ -434,6 +435,9 @@ func (cp *ConnectionPool) getOrGat(command string, exp int64, keys []string) ([]
 	defer func() {
 		cp.putConn(c, err)
 	}()
+
+	ctx, cancel := context.WithTimeout(ctx, cp.cancelTimeout)
+	defer cancel()
 
 	c.Lock()
 	defer c.Unlock()
@@ -573,8 +577,7 @@ func (cp *ConnectionPool) getOrGat(command string, exp int64, keys []string) ([]
 }
 
 func (cp *ConnectionPool) store(command string, items []*Item, noreply bool) (failedKeys []string, err error) {
-	ctx, cancel := context.WithTimeout(context.Background(), cp.cancelTimeout)
-	defer cancel()
+	ctx := context.Background()
 	c, err := cp.conn(ctx)
 	if err != nil {
 		return []string{}, errors.Wrap(err, "Failed cp.conn")
@@ -582,6 +585,9 @@ func (cp *ConnectionPool) store(command string, items []*Item, noreply bool) (fa
 	defer func() {
 		cp.putConn(c, err)
 	}()
+
+	ctx, cancel := context.WithTimeout(ctx, cp.cancelTimeout)
+	defer cancel()
 
 	var mu sync.Mutex
 	var wg sync.WaitGroup
