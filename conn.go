@@ -70,6 +70,7 @@ func newConn(cp *ConnectionPool) (*conn, error) {
 				ec <- err1
 				return
 			}
+			cp.logf("Failed connect to %s", node)
 			c.removeNode(node)
 			mu.Lock()
 			c.ncs[node] = &nc{
@@ -196,6 +197,7 @@ func (c *conn) tryReconnect() {
 		if _s == nil {
 			continue
 		}
+		c.cp.logf("Trying reconnect to %s", n)
 		go func(s *Server, node string) {
 			nc, err := c.newNC(s)
 			if err != nil {

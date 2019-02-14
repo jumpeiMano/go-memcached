@@ -41,6 +41,8 @@ type ConnectionPool struct {
 	maxOpen            int           // maximum amount of connection num. maxOpen <= 0 means unlimited.
 	cleanerCh          chan struct{}
 	closed             bool
+
+	logf func(format string, params ...interface{})
 }
 
 // Servers are slice of Server.
@@ -102,6 +104,7 @@ func New(servers Servers, prefix string) (cp *ConnectionPool) {
 	cp.cancelTimeout = defaultPollTimeout + (3 * time.Second)
 	cp.tryReconnectPeriod = defaultTryReconnectPeriod
 	cp.keepAlivePeriod = defaultKeepAlivePeriod
+	cp.logf = log.Printf
 
 	go cp.opener()
 
@@ -353,6 +356,13 @@ func (cp *ConnectionPool) SetFailover(failover bool) {
 	cp.mu.Lock()
 	defer cp.mu.Unlock()
 	cp.failover = failover
+}
+
+// SetLogger is used to set logger
+func (cp *ConnectionPool) SetLogger(logf func(format string, params ...interface{})) {
+	cp.mu.Lock()
+	defer cp.mu.Unlock()
+	cp.logf = logf
 }
 
 func (cp *ConnectionPool) needStartCleaner() bool {

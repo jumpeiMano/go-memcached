@@ -550,8 +550,7 @@ func (cp *ConnectionPool) getOrGat(command string, exp int64, keys []string) ([]
 		}
 		select {
 		case <-ctx.Done():
-			err = ErrCanceldByContext
-			return results, err
+			return results, ErrCanceldByContext
 		case err = <-ec:
 			if err != nil {
 				return results, err

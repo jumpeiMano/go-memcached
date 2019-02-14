@@ -1,7 +1,9 @@
 package memcached
 
 import (
+	"log"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -13,6 +15,7 @@ func TestNewConn(t *testing.T) {
 	}
 	_cp := New(_ss, "")
 	defer _cp.Close()
+	_cp.SetLogger(log.Printf)
 	_, err := newConn(_cp)
 	assert.NotNil(t, err)
 
