@@ -2,6 +2,7 @@ package memcached
 
 import (
 	"bufio"
+	"context"
 	"io"
 	"net"
 	"strings"
@@ -39,6 +40,9 @@ var (
 )
 
 func newConn(cp *ConnectionPool) (*conn, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), cp.connectTimeout*2)
+	defer cancel()
+
 	ls := len(cp.servers)
 	now := time.Now()
 	c := &conn{
@@ -76,12 +80,14 @@ func newConn(cp *ConnectionPool) (*conn, error) {
 		}(s)
 	}
 	for range cp.servers {
-		if err1 := <-ec; err1 != nil {
-			err = err1
+		select {
+		case <-ctx.Done():
+			return c, ErrCanceldByContext
+		case err = <-ec:
+			if err != nil {
+				return c, err
+			}
 		}
-	}
-	if err != nil {
-		return c, err
 	}
 
 	var existsAlive bool
