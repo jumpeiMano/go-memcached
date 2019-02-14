@@ -44,5 +44,7 @@ func TestTryReconnect(t *testing.T) {
 	}
 	c.tryReconnect()
 	time.Sleep(10 * time.Millisecond)
+	c.RLock()
+	defer c.RUnlock()
 	assert.Equal(t, true, c.ncs["2"].isAlive)
 }

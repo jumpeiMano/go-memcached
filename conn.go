@@ -180,8 +180,8 @@ func (c *conn) tryReconnect() {
 	}
 	defer func() {
 		c.Lock()
+		defer c.Unlock()
 		c.nextTryReconnectAt = now.Add(c.cp.tryReconnectPeriod)
-		c.Unlock()
 	}()
 	notAliveNodes := make([]string, 0, len(c.ncs))
 	for node, nc := range c.ncs {
