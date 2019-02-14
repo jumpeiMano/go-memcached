@@ -19,8 +19,6 @@ const (
 	defaultPollTimeout        = 1 * time.Second
 	defaultTryReconnectPeriod = 60 * time.Second
 	defaultKeepAlivePeriod    = 60 * time.Second
-
-	contextDeadlineExceededErrorString = "context deadline exceeded"
 )
 
 // ConnectionPool struct
@@ -222,7 +220,7 @@ func (cp *ConnectionPool) _conn(ctx context.Context, useFreeConn bool) (*conn, e
 	default:
 	case <-ctx.Done():
 		cp.mu.Unlock()
-		return nil, ctx.Err()
+		return nil, errors.Wrap(ctx.Err(), "the context is expired")
 	}
 	lifetime := cp.maxLifetime
 
@@ -239,7 +237,7 @@ func (cp *ConnectionPool) _conn(ctx context.Context, useFreeConn bool) (*conn, e
 		}
 		c.tryReconnect()
 		err := c.setDeadline()
-		return c, err
+		return c, errors.Wrap(err, "Failed setDeadline")
 	}
 
 	if cp.maxOpen > 0 && cp.maxOpen <= cp.numOpen {
@@ -264,17 +262,17 @@ func (cp *ConnectionPool) _conn(ctx context.Context, useFreeConn bool) (*conn, e
 				}
 			default:
 			}
-			return nil, ctx.Err()
+			return nil, errors.Wrap(ctx.Err(), "Deadline of connRequests exceeded")
 		case ret, ok := <-req:
 			if !ok {
 				return nil, ErrMemcachedClosed
 			}
 			if ret.err != nil {
-				return ret.conn, ret.err
+				return ret.conn, errors.Wrap(ret.err, "Response has an error")
 			}
 			ret.conn.tryReconnect()
 			err := ret.conn.setDeadline()
-			return ret.conn, err
+			return ret.conn, errors.Wrap(err, "Failed setDeadline in response")
 		}
 	}
 
@@ -286,10 +284,10 @@ func (cp *ConnectionPool) _conn(ctx context.Context, useFreeConn bool) (*conn, e
 		defer cp.mu.Unlock()
 		cp.numOpen--
 		cp.maybeOpenNewConnections()
-		return nil, err
+		return nil, errors.Wrap(err, "Failed newConn")
 	}
 	err = newCn.setDeadline()
-	return newCn, err
+	return newCn, errors.Wrap(err, "Failed setDeadline of new conn")
 }
 
 // SetConnMaxLifetime sets the maximum amount of time a connection may be reused.
@@ -478,6 +476,5 @@ func needCloseConn(err error) bool {
 		errcouse == ErrServer ||
 		errcouse == ErrCanceldByContext ||
 		errcouse == context.DeadlineExceeded ||
-		errcouse == context.Canceled ||
-		errcouse.Error() == contextDeadlineExceededErrorString
+		errcouse == context.Canceled
 }
