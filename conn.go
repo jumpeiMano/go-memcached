@@ -2,6 +2,7 @@ package memcached
 
 import (
 	"bufio"
+	"context"
 	"io"
 	"net"
 	"strings"
@@ -39,6 +40,9 @@ var (
 )
 
 func newConn(cp *ConnectionPool) (*conn, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), cp.connectTimeout*2)
+	defer cancel()
+
 	ls := len(cp.servers)
 	now := time.Now()
 	c := &conn{
@@ -66,6 +70,7 @@ func newConn(cp *ConnectionPool) (*conn, error) {
 				ec <- err1
 				return
 			}
+			cp.logf("Failed connect to %s", node)
 			c.removeNode(node)
 			mu.Lock()
 			c.ncs[node] = &nc{
@@ -76,12 +81,14 @@ func newConn(cp *ConnectionPool) (*conn, error) {
 		}(s)
 	}
 	for range cp.servers {
-		if err1 := <-ec; err1 != nil {
-			err = err1
+		select {
+		case <-ctx.Done():
+			return c, ErrCanceldByContext
+		case err = <-ec:
+			if err != nil {
+				return c, err
+			}
 		}
-	}
-	if err != nil {
-		return c, err
 	}
 
 	var existsAlive bool
@@ -173,8 +180,8 @@ func (c *conn) tryReconnect() {
 	}
 	defer func() {
 		c.Lock()
+		defer c.Unlock()
 		c.nextTryReconnectAt = now.Add(c.cp.tryReconnectPeriod)
-		c.Unlock()
 	}()
 	notAliveNodes := make([]string, 0, len(c.ncs))
 	for node, nc := range c.ncs {
@@ -190,6 +197,7 @@ func (c *conn) tryReconnect() {
 		if _s == nil {
 			continue
 		}
+		c.cp.logf("Trying reconnect to %s", n)
 		go func(s *Server, node string) {
 			nc, err := c.newNC(s)
 			if err != nil {
