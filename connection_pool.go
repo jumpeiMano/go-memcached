@@ -156,6 +156,7 @@ func (cp *ConnectionPool) openNewConnection() {
 	}
 	cp.mu.Lock()
 	if !cp.putConnLocked(c, nil) {
+		cp.numOpen--
 		cp.mu.Unlock()
 		c.close()
 		return
@@ -168,6 +169,7 @@ func (cp *ConnectionPool) putConn(c *conn, err error) error {
 	cp.mu.Lock()
 	if needCloseConn(err) ||
 		!cp.putConnLocked(c, nil) {
+		cp.numOpen--
 		cp.mu.Unlock()
 		c.close()
 		return err
@@ -235,6 +237,9 @@ func (cp *ConnectionPool) _conn(ctx context.Context, useFreeConn bool) (*conn, e
 		cp.freeConns = cp.freeConns[:numFree-1]
 		cp.mu.Unlock()
 		if c.expired(lifetime) {
+			cp.mu.Lock()
+			cp.numOpen--
+			cp.mu.Unlock()
 			c.close()
 			return nil, ErrBadConn
 		}
@@ -411,6 +416,7 @@ func (cp *ConnectionPool) connectionCleaner(d time.Duration) {
 				cp.freeConns[i] = cp.freeConns[last]
 				cp.freeConns[last] = nil
 				cp.freeConns = cp.freeConns[:last]
+				cp.numOpen--
 				i--
 			}
 		}
@@ -468,7 +474,9 @@ func (cp *ConnectionPool) Close() error {
 	cp.mu.Unlock()
 	var err error
 	for _, c := range cp.freeConns {
-		c.close()
+		if err1 := c.close(); err1 != nil {
+			err = err1
+		}
 	}
 	cp.mu.Lock()
 	cp.freeConns = nil
