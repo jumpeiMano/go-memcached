@@ -5,8 +5,7 @@ references:
 executors:
   builder:
     working_directory: *working_directory
-    machine:
-      docker_layer_caching: true
+    machine: true
     environment:
       GOPATH: /home/circleci/.go_workspace
 jobs:
@@ -19,6 +18,10 @@ jobs:
           name: docker build
           command: |
             docker-compose build
+      - run:
+          name: up
+          command: |
+            docker-compose up -d
       - restore_cache:
           key: mod-cache-{{ checksum "go.sum" }}-v1?
       - run:
@@ -33,7 +36,10 @@ jobs:
           key: mod-cache-{{ checksum "go.sum" }}-v1?
           paths:
             - /home/circleci/.go_workspace/pkg/mod
-      - run: make lint
+      - run:
+          name: lint
+          command: |
+            make lint
       - run:
           name: Wait for memcached
           command: |
