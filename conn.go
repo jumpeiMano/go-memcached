@@ -20,6 +20,7 @@ type conn struct {
 	ncs                map[string]*nc
 	createdAt          time.Time
 	nextTryReconnectAt time.Time
+	closed             bool
 }
 
 type nc struct {
@@ -118,6 +119,7 @@ func (c *conn) close() error {
 			return err
 		}
 	}
+	c.closed = true
 	return nil
 }
 
@@ -209,8 +211,10 @@ func (c *conn) tryReconnect() {
 			if nc.isAlive {
 				c.Lock()
 				defer c.Unlock()
-				c.ncs[node] = nc
-				c.hashRing = c.hashRing.AddNode(node)
+				if !c.closed {
+					c.ncs[node] = nc
+					c.hashRing = c.hashRing.AddNode(node)
+				}
 			}
 		}(_s, n)
 	}
