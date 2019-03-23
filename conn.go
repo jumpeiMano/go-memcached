@@ -57,8 +57,8 @@ func newConn(cp *ConnectionPool) (*conn, error) {
 	for _, s := range cp.servers {
 		go func(s Server) {
 			node := s.getNodeName()
-			_nc, err1 := c.newNC(&s)
-			if err1 == nil {
+			_nc, err := c.newNC(&s)
+			if err == nil {
 				mu.Lock()
 				c.ncs[node] = _nc
 				mu.Unlock()
@@ -66,7 +66,7 @@ func newConn(cp *ConnectionPool) (*conn, error) {
 				return
 			}
 			if !c.cp.failover {
-				ec <- err1
+				ec <- err
 				return
 			}
 			cp.logf("Failed connect to %s", node)

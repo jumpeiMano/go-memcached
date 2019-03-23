@@ -107,9 +107,9 @@ func (cp *ConnectionPool) Gat(exp int64, keys ...string) (results []*Item, err e
 		if keylen < limit {
 			limit = keylen
 		}
-		_results, err1 := cp.getOrGat("gat", exp, keys[i*gatMaxKeyNum:limit])
-		if err1 != nil {
-			return results, err1
+		_results, err := cp.getOrGat("gat", exp, keys[i*gatMaxKeyNum:limit])
+		if err != nil {
+			return results, err
 		}
 		results = append(results, _results...)
 	}
@@ -537,9 +537,9 @@ func (cp *ConnectionPool) getOrGat(command string, exp int64, keys []string) ([]
 				ec <- errors.Wrap(err, "Failed writestrings")
 				return
 			}
-			header, err1 := nc.readline()
-			if err1 != nil {
-				ec <- errors.Wrap(err1, "Failed readline")
+			header, err := nc.readline()
+			if err != nil {
+				ec <- errors.Wrap(err, "Failed readline")
 				return
 			}
 			for strings.HasPrefix(header, "VALUE") {
