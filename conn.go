@@ -214,6 +214,10 @@ func (c *conn) tryReconnect() {
 				if !c.closed {
 					c.ncs[node] = nc
 					c.hashRing = c.hashRing.AddNode(node)
+					return
+				}
+				if err := nc.Close(); err != nil {
+					c.cp.logf("Failed nc.Close: %v", err)
 				}
 			}
 		}(_s, n)
