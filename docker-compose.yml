@@ -1,17 +1,28 @@
 version: '3'
 services:
   app:
-    image: jumpeimano/go-dep-image:1.11.4
+    image: jumpeimano/go-dep-image:1.12
     environment:
-      GOPATH: /
+      GOPATH: /go
+      GO111MODULE: "on"
     working_dir: /go/src/github.com/jumpeiMano/go-memcached
     volumes:
-      - ../go-memcached:/go/src/github.com/jumpeiMano/go-memcached
+      - .:/go/src/github.com/jumpeiMano/go-memcached
+      - ${GOPATH}/pkg/mod:/go/pkg/mod
     depends_on:
       - memcached_1
       - memcached_2
       - memcached_3
       - memcached_4
+  lint:
+    image: golangci/golangci-lint
+    environment:
+      - GO111MODULE=on
+    volumes:
+      - .:/go/src/github.com/jumpeiMano/go-memcached
+      - ${GOPATH}/pkg/mod:/go/pkg/mod
+    working_dir: /go/src/github.com/jumpeiMano/go-memcached
+    command: ["golangci-lint", "run"]
   memcached_1:
     image: memcached
     ports:
@@ -19,12 +30,12 @@ services:
   memcached_2:
     image: memcached
     ports:
-      - "11212:11211"
+      - "11211:11211"
   memcached_3:
     image: memcached
     ports:
-      - "11213:11211"
+      - "11211:11211"
   memcached_4:
     image: memcached
     ports:
-      - "11214:11211"
+      - "11211:11211"

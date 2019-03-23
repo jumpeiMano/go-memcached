@@ -19,7 +19,6 @@ type conn struct {
 	hashRing           *hashring.HashRing
 	ncs                map[string]*nc
 	createdAt          time.Time
-	closed             bool
 	nextTryReconnectAt time.Time
 }
 
@@ -159,8 +158,12 @@ func (c *conn) newNC(s *Server) (*nc, error) {
 		return nil, errors.Wrap(err, "Failed DialTimeout")
 	}
 	if tcpconn, ok := _nc.Conn.(*net.TCPConn); ok {
-		tcpconn.SetKeepAlive(true)
-		tcpconn.SetKeepAlivePeriod(c.cp.keepAlivePeriod)
+		if err = tcpconn.SetKeepAlive(true); err != nil {
+			return nil, errors.Wrap(err, "Failed SetKeepAlive")
+		}
+		if err = tcpconn.SetKeepAlivePeriod(c.cp.keepAlivePeriod); err != nil {
+			return nil, errors.Wrap(err, "Failed SetKeepAlivePeriod")
+		}
 	}
 	_nc.buffered = bufio.ReadWriter{
 		Reader: bufio.NewReader(&_nc),
@@ -213,10 +216,13 @@ func (c *conn) tryReconnect() {
 	}
 }
 
-func (nc *nc) writestrings(strs ...string) {
+func (nc *nc) writestrings(strs ...string) error {
 	for _, s := range strs {
-		nc.writestring(s)
+		if err := nc.writestring(s); err != nil {
+			return errors.Wrap(err, "Failed writestring")
+		}
 	}
+	return nil
 }
 
 func (nc *nc) writestring(s string) error {
