@@ -6,6 +6,8 @@ executors:
   builder:
     working_directory: *working_directory
     machine: true
+    environment:
+      GOPATH: /home/circleci/.go_workspace
 jobs:
   build:
     executor:
@@ -13,17 +15,9 @@ jobs:
     steps:
       - checkout
       - run:
-          name: export $GOPATH
-          command: |
-            export GOPATH=/home/circleci/.go_workspace
-      - run:
           name: docker build
           command: |
             docker-compose build
-      - run:
-          name: up
-          command: |
-            docker-compose up -d
       - restore_cache:
           key: mod-cache-{{ checksum "go.sum" }}-v1?
       - run:
@@ -42,6 +36,10 @@ jobs:
           name: lint
           command: |
             make lint
+      - run:
+          name: up
+          command: |
+            docker-compose up -d
       - run:
           name: Wait for memcached
           command: |
