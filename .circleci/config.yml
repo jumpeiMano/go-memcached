@@ -6,14 +6,16 @@ executors:
   builder:
     working_directory: *working_directory
     machine: true
-    environment:
-      GOPATH: /home/circleci/.go_workspace
 jobs:
   build:
     executor:
       name: builder
     steps:
       - checkout
+      - run:
+          name: export $GOPATH
+          command: |
+            export GOPATH=/home/circleci/.go_workspace
       - run:
           name: docker build
           command: |
