@@ -30,12 +30,12 @@ services:
   memcached_2:
     image: memcached
     ports:
-      - "11211:11211"
+      - "11212:11211"
   memcached_3:
     image: memcached
     ports:
-      - "11211:11211"
+      - "11213:11211"
   memcached_4:
     image: memcached
     ports:
-      - "11211:11211"
+      - "11214:11211"
