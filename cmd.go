@@ -107,9 +107,9 @@ func (cp *ConnectionPool) Gat(exp int64, keys ...string) (results []*Item, err e
 		if keylen < limit {
 			limit = keylen
 		}
-		_results, err1 := cp.getOrGat("gat", exp, keys[i*gatMaxKeyNum:limit])
-		if err1 != nil {
-			return results, err1
+		_results, err := cp.getOrGat("gat", exp, keys[i*gatMaxKeyNum:limit])
+		if err != nil {
+			return results, err
 		}
 		results = append(results, _results...)
 	}
@@ -212,7 +212,9 @@ func (cp *ConnectionPool) Touch(key string, exp int64, noreply bool) error {
 		return errors.Wrap(err, "Failed cp.conn")
 	}
 	defer func() {
-		cp.putConn(c, err)
+		if err = cp.putConn(c, err); err != nil {
+			cp.logf("Failed putConn: %v", err)
+		}
 	}()
 
 	c.Lock()
@@ -228,15 +230,25 @@ func (cp *ConnectionPool) Touch(key string, exp int64, noreply bool) error {
 	if !ok {
 		return fmt.Errorf("Failed to get a connection: %s", node)
 	}
-	nc.writestrings("touch ", rawkey, " ")
-	nc.write(strconv.AppendUint(nil, uint64(exp), 10))
+	if err = nc.writestrings("touch ", rawkey, " "); err != nil {
+		return errors.Wrap(err, "Failed writestrings")
+	}
+	if err = nc.write(strconv.AppendUint(nil, uint64(exp), 10)); err != nil {
+		return errors.Wrap(err, "Failed write")
+	}
 	if noreply {
-		nc.writestring(" noreply ")
-		nc.writestrings("\r\n")
+		if err = nc.writestring(" noreply "); err != nil {
+			return errors.Wrap(err, "Failed writestring")
+		}
+		if err = nc.writestrings("\r\n"); err != nil {
+			return errors.Wrap(err, "Failed writestrings")
+		}
 		err = nc.flush()
 		return err
 	}
-	nc.writestrings("\r\n")
+	if err = nc.writestrings("\r\n"); err != nil {
+		return errors.Wrap(err, "Failed writestrings")
+	}
 	reply, err := nc.readline()
 	if err != nil {
 		return errors.Wrap(err, "Failed readline")
@@ -258,7 +270,9 @@ func (cp *ConnectionPool) Delete(noreply bool, keys ...string) (failedKeys []str
 		return []string{}, errors.Wrap(err, "Failed cp.conn")
 	}
 	defer func() {
-		cp.putConn(c, err)
+		if err = cp.putConn(c, err); err != nil {
+			cp.logf("Failed putConn: %v", err)
+		}
 	}()
 
 	ctx, cancel := context.WithTimeout(ctx, cp.cancelTimeout)
@@ -291,16 +305,28 @@ func (cp *ConnectionPool) Delete(noreply bool, keys ...string) (failedKeys []str
 			defer wg.Done()
 			nc.mu.Lock()
 			defer nc.mu.Unlock()
-			nc.writestrings("delete ", rawkey)
-			if noreply {
-				nc.writestring(" noreply")
-				nc.writestrings("\r\n")
+			if err := nc.writestrings("delete ", rawkey); err != nil {
+				ec <- errors.Wrap(err, "Failed writestrings")
 				return
 			}
-			nc.writestrings("\r\n")
-			reply, err1 := nc.readline()
-			if err1 != nil {
-				ec <- errors.Wrap(err1, "Failed readline")
+			if noreply {
+				if err := nc.writestring(" noreply"); err != nil {
+					ec <- errors.Wrap(err, "Failed writestring")
+					return
+				}
+				if err := nc.writestrings("\r\n"); err != nil {
+					ec <- errors.Wrap(err, "Failed writestrings")
+					return
+				}
+				return
+			}
+			if err := nc.writestrings("\r\n"); err != nil {
+				ec <- errors.Wrap(err, "Failed writestrings")
+				return
+			}
+			reply, err := nc.readline()
+			if err != nil {
+				ec <- errors.Wrap(err, "Failed readline")
 				return
 			}
 			if !strings.HasPrefix(reply, "DELETED") {
@@ -362,7 +388,9 @@ func (cp *ConnectionPool) FlushAll() error {
 		return errors.Wrap(err, "Failed cp.conn")
 	}
 	defer func() {
-		cp.putConn(c, err)
+		if err := cp.putConn(c, err); err != nil {
+			cp.logf("Failed putConn: %v", err)
+		}
 	}()
 
 	c.Lock()
@@ -373,8 +401,10 @@ func (cp *ConnectionPool) FlushAll() error {
 		if !nc.isAlive {
 			continue
 		}
-		nc.writestrings("flush_all\r\n")
-		_, err = nc.readline()
+		if err := nc.writestrings("flush_all\r\n"); err != nil {
+			return errors.Wrap(err, "Failed writestrings")
+		}
+		_, err := nc.readline()
 		if err != nil {
 			return errors.Wrap(err, "Failed readline")
 		}
@@ -390,7 +420,9 @@ func (cp *ConnectionPool) Stats(argument string) (resultMap map[string][]byte, e
 		return resultMap, errors.Wrap(err, "Failed cp.conn")
 	}
 	defer func() {
-		cp.putConn(c, err)
+		if err := cp.putConn(c, err); err != nil {
+			cp.logf("Failed putConn: %v", err)
+		}
 	}()
 
 	c.Lock()
@@ -400,16 +432,20 @@ func (cp *ConnectionPool) Stats(argument string) (resultMap map[string][]byte, e
 			continue
 		}
 		if argument == "" {
-			c.ncs[node].writestrings("stats\r\n")
+			if err := c.ncs[node].writestrings("stats\r\n"); err != nil {
+				return resultMap, errors.Wrap(err, "Failed writestrings")
+			}
 		} else {
-			c.ncs[node].writestrings("stats ", argument, "\r\n")
+			if err := c.ncs[node].writestrings("stats ", argument, "\r\n"); err != nil {
+				return resultMap, errors.Wrap(err, "Failed writestrings")
+			}
 		}
 		c.ncs[node].flush()
 		var result []byte
 		for {
-			l, err1 := c.ncs[node].readline()
-			if err1 != nil {
-				return resultMap, errors.Wrap(err1, "Failed readline")
+			l, err := c.ncs[node].readline()
+			if err != nil {
+				return resultMap, errors.Wrap(err, "Failed readline")
 			}
 			if strings.HasPrefix(l, "END") {
 				break
@@ -433,7 +469,9 @@ func (cp *ConnectionPool) getOrGat(command string, exp int64, keys []string) ([]
 		return results, errors.Wrap(err, "Failed cp.conn")
 	}
 	defer func() {
-		cp.putConn(c, err)
+		if err := cp.putConn(c, err); err != nil {
+			cp.logf("Failed putConn: %v", err)
+		}
 	}()
 
 	ctx, cancel := context.WithTimeout(ctx, cp.cancelTimeout)
@@ -465,13 +503,21 @@ func (cp *ConnectionPool) getOrGat(command string, exp int64, keys []string) ([]
 			return []*Item{}, fmt.Errorf("Failed to get a connection: %s", node)
 		}
 		if nc.count == 0 {
-			nc.writestrings(command)
+			if err := nc.writestrings(command); err != nil {
+				return []*Item{}, errors.Wrap(err, "Failed writestrings")
+			}
 			if exp > 0 {
-				nc.writestring(" ")
-				nc.write(strconv.AppendUint(nil, uint64(exp), 10))
+				if err := nc.writestring(" "); err != nil {
+					return []*Item{}, errors.Wrap(err, "Failed writestring")
+				}
+				if err := nc.write(strconv.AppendUint(nil, uint64(exp), 10)); err != nil {
+					return []*Item{}, errors.Wrap(err, "Failed write")
+				}
 			}
 		}
-		nc.writestrings(" ", rawkey)
+		if err := nc.writestrings(" ", rawkey); err != nil {
+			return []*Item{}, errors.Wrap(err, "Failed writestrings")
+		}
 		nc.count++
 	}
 
@@ -487,10 +533,13 @@ func (cp *ConnectionPool) getOrGat(command string, exp int64, keys []string) ([]
 			defer wg.Done()
 			nc.mu.Lock()
 			defer nc.mu.Unlock()
-			nc.writestrings("\r\n")
-			header, err1 := nc.readline()
-			if err1 != nil {
-				ec <- errors.Wrap(err1, "Failed readline")
+			if err := nc.writestrings("\r\n"); err != nil {
+				ec <- errors.Wrap(err, "Failed writestrings")
+				return
+			}
+			header, err := nc.readline()
+			if err != nil {
+				ec <- errors.Wrap(err, "Failed readline")
 				return
 			}
 			for strings.HasPrefix(header, "VALUE") {
@@ -502,37 +551,37 @@ func (cp *ConnectionPool) getOrGat(command string, exp int64, keys []string) ([]
 				}
 				var result Item
 				result.Key = cp.removePrefix(chunks[1])
-				flags64, err1 := strconv.ParseUint(chunks[2], 10, 16)
-				if err1 != nil {
-					ec <- errors.Wrap(err1, "Failed ParseUint")
+				flags64, err := strconv.ParseUint(chunks[2], 10, 16)
+				if err != nil {
+					ec <- errors.Wrap(err, "Failed ParseUint")
 					return
 				}
 				result.Flags = uint16(flags64)
-				size, err1 := strconv.ParseUint(chunks[3], 10, 64)
-				if err1 != nil {
-					ec <- errors.Wrap(err1, "Failed ParseUint")
+				size, err := strconv.ParseUint(chunks[3], 10, 64)
+				if err != nil {
+					ec <- errors.Wrap(err, "Failed ParseUint")
 					return
 				}
 				if len(chunks) == 5 {
-					result.Cas, err1 = strconv.ParseUint(chunks[4], 10, 64)
-					if err1 != nil {
-						ec <- errors.Wrap(err1, "Failed ParseUint")
+					result.Cas, err = strconv.ParseUint(chunks[4], 10, 64)
+					if err != nil {
+						ec <- errors.Wrap(err, "Failed ParseUint")
 						return
 					}
 				}
 				// <data block>\r\n
-				b, err1 := nc.read(int(size) + 2)
-				if err1 != nil {
-					ec <- errors.Wrap(err1, "Failed read")
+				b, err := nc.read(int(size) + 2)
+				if err != nil {
+					ec <- errors.Wrap(err, "Failed read")
 					return
 				}
 				result.Value = b[:size]
 				mu.Lock()
 				results = append(results, &result)
 				mu.Unlock()
-				header, err1 = nc.readline()
-				if err1 != nil {
-					ec <- errors.Wrap(err1, "Failed readline")
+				header, err = nc.readline()
+				if err != nil {
+					ec <- errors.Wrap(err, "Failed readline")
 					return
 				}
 			}
@@ -582,7 +631,9 @@ func (cp *ConnectionPool) store(command string, items []*Item, noreply bool) (fa
 		return []string{}, errors.Wrap(err, "Failed cp.conn")
 	}
 	defer func() {
-		cp.putConn(c, err)
+		if err := cp.putConn(c, err); err != nil {
+			cp.logf("Failed putConn: %v", err)
+		}
 	}()
 
 	ctx, cancel := context.WithTimeout(ctx, cp.cancelTimeout)
@@ -621,29 +672,65 @@ func (cp *ConnectionPool) store(command string, items []*Item, noreply bool) (fa
 			nc.mu.Lock()
 			defer nc.mu.Unlock()
 			// <command name> <key> <flags> <exptime> <bytes> [noreply]\r\n
-			nc.writestrings(command, " ", rawkey, " ")
-			nc.write(strconv.AppendUint(nil, uint64(item.Flags), 10))
-			nc.writestring(" ")
-			nc.write(strconv.AppendUint(nil, uint64(item.Exp), 10))
-			nc.writestring(" ")
-			nc.write(strconv.AppendInt(nil, int64(len(item.Value)), 10))
+			if err := nc.writestrings(command, " ", rawkey, " "); err != nil {
+				ec <- errors.Wrap(err, "Failed writestrings")
+				return
+			}
+			if err := nc.write(strconv.AppendUint(nil, uint64(item.Flags), 10)); err != nil {
+				ec <- errors.Wrap(err, "Failed write")
+				return
+			}
+			if err := nc.writestring(" "); err != nil {
+				ec <- errors.Wrap(err, "Failed writestring")
+				return
+			}
+			if err := nc.write(strconv.AppendUint(nil, uint64(item.Exp), 10)); err != nil {
+				ec <- errors.Wrap(err, "Failed write")
+				return
+			}
+			if err := nc.writestring(" "); err != nil {
+				ec <- errors.Wrap(err, "Failed writestring")
+				return
+			}
+			if err := nc.write(strconv.AppendInt(nil, int64(len(item.Value)), 10)); err != nil {
+				ec <- errors.Wrap(err, "Failed write")
+				return
+			}
 			if item.Cas != 0 {
-				nc.writestring(" ")
-				nc.write(strconv.AppendUint(nil, item.Cas, 10))
+				if err = nc.writestring(" "); err != nil {
+					ec <- errors.Wrap(err, "Failed writestrint")
+					return
+				}
+				if err := nc.write(strconv.AppendUint(nil, item.Cas, 10)); err != nil {
+					ec <- errors.Wrap(err, "Failed write")
+					return
+				}
 			}
 			if noreply {
-				nc.writestring(" noreply")
+				if err := nc.writestring(" noreply"); err != nil {
+					ec <- errors.Wrap(err, "Failed writestring")
+					return
+				}
 			}
-			nc.writestring("\r\n")
+			if err := nc.writestring("\r\n"); err != nil {
+				ec <- errors.Wrap(err, "Failed writestring")
+				return
+			}
 			// <data block>\r\n
-			nc.write(item.Value)
-			nc.writestring("\r\n")
+			if err := nc.write(item.Value); err != nil {
+				ec <- errors.Wrap(err, "Failed writee")
+				return
+			}
+			if err := nc.writestring("\r\n"); err != nil {
+				ec <- errors.Wrap(err, "Faield writestring")
+				return
+			}
 			if noreply {
 				return
 			}
-			reply, err1 := nc.readline()
-			if err1 != nil {
-				ec <- errors.Wrap(err1, "Failed readline")
+			reply, err := nc.readline()
+			if err != nil {
+				ec <- errors.Wrap(err, "Failed readline")
 				return
 			}
 			if !strings.HasPrefix(reply, "STORED") {

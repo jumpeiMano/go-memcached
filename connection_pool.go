@@ -111,10 +111,6 @@ func New(servers Servers, prefix string) (cp *ConnectionPool) {
 	return
 }
 
-func finalizer(c *conn) {
-	c.close()
-}
-
 func (cp *ConnectionPool) maybeOpenNewConnections() {
 	if cp.closed {
 		return
@@ -162,7 +158,6 @@ func (cp *ConnectionPool) openNewConnection() {
 		return
 	}
 	cp.mu.Unlock()
-	return
 }
 
 func (cp *ConnectionPool) putConn(c *conn, err error) error {
@@ -266,7 +261,9 @@ func (cp *ConnectionPool) _conn(ctx context.Context, useFreeConn bool) (*conn, e
 			select {
 			case ret, ok := <-req:
 				if ok {
-					cp.putConn(ret.conn, ret.err)
+					if err := cp.putConn(ret.conn, ret.err); err != nil {
+						return c, errors.Wrap(err, "Failed putConn")
+					}
 				}
 			default:
 			}

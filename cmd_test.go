@@ -407,9 +407,9 @@ func TestConnectionPool_Delete(t *testing.T) {
 		{Key: "Delete_1", Value: []byte{}, Exp: 1},
 		{Key: "Delete_2", Value: []byte{}, Exp: 1},
 	}
-	cp.Set(false, is...)
+	_, _ = cp.Set(false, is...)
 	test(false, []string{"Delete_1", "Delete_2", "Delete_3"}, false, [][]byte{})
-	cp.Set(false, is...)
+	_, _ = cp.Set(false, is...)
 	test(true, []string{"Delete_1", "Delete_2", "Delete_3"}, true, [][]byte{})
 }
 

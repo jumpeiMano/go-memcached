@@ -14,23 +14,23 @@ var (
 	cp *ConnectionPool
 	ss = []Server{
 		{
-			Host:  "127.0.0.1",
+			Host:  "memcached_1",
 			Port:  11211,
 			Alias: "s1",
 		},
 		{
-			Host:  "127.0.0.1",
-			Port:  11212,
+			Host:  "memcached_2",
+			Port:  11211,
 			Alias: "s2",
 		},
 		{
-			Host:  "127.0.0.1",
-			Port:  11213,
+			Host:  "memcached_3",
+			Port:  11211,
 			Alias: "s3",
 		},
 		{
-			Host:  "127.0.0.1",
-			Port:  11214,
+			Host:  "memcached_4",
+			Port:  11211,
 			Alias: "s4",
 		},
 	}

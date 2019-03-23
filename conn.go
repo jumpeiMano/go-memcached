@@ -19,8 +19,8 @@ type conn struct {
 	hashRing           *hashring.HashRing
 	ncs                map[string]*nc
 	createdAt          time.Time
-	closed             bool
 	nextTryReconnectAt time.Time
+	closed             bool
 }
 
 type nc struct {
@@ -58,8 +58,8 @@ func newConn(cp *ConnectionPool) (*conn, error) {
 	for _, s := range cp.servers {
 		go func(s Server) {
 			node := s.getNodeName()
-			_nc, err1 := c.newNC(&s)
-			if err1 == nil {
+			_nc, err := c.newNC(&s)
+			if err == nil {
 				mu.Lock()
 				c.ncs[node] = _nc
 				mu.Unlock()
@@ -67,7 +67,7 @@ func newConn(cp *ConnectionPool) (*conn, error) {
 				return
 			}
 			if !c.cp.failover {
-				ec <- err1
+				ec <- err
 				return
 			}
 			cp.logf("Failed connect to %s", node)
@@ -119,6 +119,7 @@ func (c *conn) close() error {
 			return err
 		}
 	}
+	c.closed = true
 	return nil
 }
 
@@ -159,8 +160,12 @@ func (c *conn) newNC(s *Server) (*nc, error) {
 		return nil, errors.Wrap(err, "Failed DialTimeout")
 	}
 	if tcpconn, ok := _nc.Conn.(*net.TCPConn); ok {
-		tcpconn.SetKeepAlive(true)
-		tcpconn.SetKeepAlivePeriod(c.cp.keepAlivePeriod)
+		if err = tcpconn.SetKeepAlive(true); err != nil {
+			return nil, errors.Wrap(err, "Failed SetKeepAlive")
+		}
+		if err = tcpconn.SetKeepAlivePeriod(c.cp.keepAlivePeriod); err != nil {
+			return nil, errors.Wrap(err, "Failed SetKeepAlivePeriod")
+		}
 	}
 	_nc.buffered = bufio.ReadWriter{
 		Reader: bufio.NewReader(&_nc),
@@ -206,17 +211,22 @@ func (c *conn) tryReconnect() {
 			if nc.isAlive {
 				c.Lock()
 				defer c.Unlock()
-				c.ncs[node] = nc
-				c.hashRing = c.hashRing.AddNode(node)
+				if !c.closed {
+					c.ncs[node] = nc
+					c.hashRing = c.hashRing.AddNode(node)
+				}
 			}
 		}(_s, n)
 	}
 }
 
-func (nc *nc) writestrings(strs ...string) {
+func (nc *nc) writestrings(strs ...string) error {
 	for _, s := range strs {
-		nc.writestring(s)
+		if err := nc.writestring(s); err != nil {
+			return errors.Wrap(err, "Failed writestring")
+		}
 	}
+	return nil
 }
 
 func (nc *nc) writestring(s string) error {

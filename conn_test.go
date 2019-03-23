@@ -10,8 +10,8 @@ import (
 
 func TestNewConn(t *testing.T) {
 	_ss := []Server{
-		{Host: "127.0.0.1", Port: 11211},
-		{Host: "127.0.0.1", Port: 99999},
+		{Host: "memcached_1", Port: 11211},
+		{Host: "memcached_1", Port: 99999},
 	}
 	_cp := New(_ss, "")
 	defer _cp.Close()
@@ -27,8 +27,8 @@ func TestNewConn(t *testing.T) {
 
 func TestTryReconnect(t *testing.T) {
 	_ss := []Server{
-		{Host: "127.0.0.1", Port: 11211, Alias: "1"},
-		{Host: "127.0.0.1", Port: 11212, Alias: "2"},
+		{Host: "memcached_1", Port: 11211, Alias: "1"},
+		{Host: "memcached_2", Port: 11211, Alias: "2"},
 	}
 	_cp := New(_ss, "")
 	defer _cp.Close()

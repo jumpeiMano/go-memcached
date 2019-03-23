@@ -1,6 +1,0 @@
-{
-   "Vendor": true,
-   "DisableAll": true,
-   "Enable": ["gofmt", "vet", "vetshadow", "golint", "ineffassign", "goconst"],
-   "Tests": true
-}

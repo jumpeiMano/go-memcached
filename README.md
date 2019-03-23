@@ -62,6 +62,5 @@ SetNoreply is used to specify whether to use the noreply option. Default is fals
 
 ## Testing
 ```
-$ docker-compose up -d
-$ go test -race ./...
+$ make test
 ```
