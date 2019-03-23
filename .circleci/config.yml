@@ -1,38 +1,38 @@
-version: 2
+version: 2.1
 references:
-  build_config: &build_config
-    working_directory: /go/src/github.com/jumpeiMano/go-memcached
-    docker:
-      - image: jumpeimano/go-dep-image:1.11
-      - image: memcached
-      - image: memcached
-        command: ["-p", "11212:11211"]
-      - image: memcached
-        command: ["-p", "11213:11211"]
-      - image: memcached
-        command: ["-p", "11214:11211"]
-  restore_vendor_cache: &restore_vendor_cache
-    restore_cache:
-      key: vendor-cache-{{ .Branch }}-{{ checksum "Gopkg.lock" }}
-  save_vendor_cache: &save_vendor_cache
-    save_cache:
-      key: vendor-cache-{{ .Branch }}-{{ checksum "Gopkg.lock" }}
-      paths:
-        - vendor
+  working_directory: &working_directory
+                       ~/go-memcached
+executors:
+  builder:
+    working_directory: *working_directory
+    machine:
+      docker_layer_caching: true
+    environment:
+      GOPATH: /home/circleci/.go_workspace
 jobs:
   build:
-    <<: *build_config
+    executor:
+      name: builder
     steps:
-      - run: go version
       - checkout
-      - *restore_vendor_cache
       - run:
-          name: Vendoring
+          name: docker build
           command: |
-              if [ ! -e vendor ]; then
-                  make dep-ensure
-              fi
-      - *save_vendor_cache
+            docker-compose build
+      - restore_cache:
+          key: mod-cache-{{ checksum "go.sum" }}-v1?
+      - run:
+          name: go mod download
+          command: |
+            make mod-download
+      - run:
+          name: chown
+          command: |
+            sudo chown -R circleci:circleci ${GOPATH}/pkg/mod
+      - save_cache:
+          key: mod-cache-{{ checksum "go.sum" }}-v1?
+          paths:
+            - /home/circleci/.go_workspace/pkg/mod
       - run: make lint
       - run:
           name: Wait for memcached
@@ -44,7 +44,6 @@ jobs:
       - run: make test
 
 workflows:
-  version: 2
   build_and_deploy:
     jobs:
       - build:
