@@ -5,13 +5,8 @@ references:
 executors:
   builder:
     working_directory: *working_directory
-    machine: true
-    environment:
-      GOPATH: /home/circleci/.go_workspace
-  tester:
-    working_directory: *working_directory
     docker:
-      - image: golang:1.12
+      - image: golangci/golangci-lint:latest
         environment:
           GO111MODULE: "on"
       - image: memcached
@@ -29,47 +24,15 @@ jobs:
     steps:
       - checkout
       - run:
-          name: docker build
-          command: |
-            docker-compose build
-      - run:
-          name: go mod download
-          command: |
-            make mod-download
-      - run:
           name: lint
           command: |
-            make lint
-      - persist_to_workspace:
-          root: .
-          paths:
-            - .
-  test:
-    executor:
-      name: tester
-    steps:
-      - attach_workspace:
-          at: .
-      - run:
-          name: up
-          command: |
-            docker-compose up -d
-      - run:
-          name: Wait for memcached
-          command: |
-            make dockerize
+            golangci-lint run
       - run: make test
 
 workflows:
-  build_and_deploy:
+  build:
     jobs:
       - build:
-          filters:
-            tags:
-              only: /.*/
-      - test:
-          requires:
-            - build
           filters:
             tags:
               only: /.*/
