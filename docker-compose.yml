@@ -1,7 +1,7 @@
 version: '3'
 services:
   app:
-    image: golang:1.12-alpine3.9
+    image: jumpeimano/go-dep-image:1.12
     environment:
       GOPATH: /go
       GO111MODULE: "on"
