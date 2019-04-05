@@ -89,55 +89,6 @@ func (c *conn) setDeadline() error {
 	return nil
 }
 
-// func (c *conn) tryReconnect() {
-// 	if !c.cp.failover {
-// 		return
-// 	}
-// 	now := time.Now()
-// 	if now.Before(c.nextTryReconnectAt) {
-// 		return
-// 	}
-// 	defer func() {
-// 		c.Lock()
-// 		defer c.Unlock()
-// 		c.nextTryReconnectAt = now.Add(c.cp.tryReconnectPeriod)
-// 	}()
-// 	notAliveNodes := make([]string, 0, len(c.ncs))
-// 	for node, nc := range c.ncs {
-// 		if !c.isAlive {
-// 			notAliveNodes = append(notAliveNodes, node)
-// 		}
-// 	}
-// 	if len(notAliveNodes) == 0 {
-// 		return
-// 	}
-// 	for _, n := range notAliveNodes {
-// 		_s := c.cp.servers.getByNode(n)
-// 		if _s == nil {
-// 			continue
-// 		}
-// 		c.cp.logf("Trying reconnect to %s", n)
-// 		go func(s *Server, node string) {
-// 			nc, err := c.newNC(s)
-// 			if err != nil {
-// 				return
-// 			}
-// 			if c.isAlive {
-// 				c.Lock()
-// 				defer c.Unlock()
-// 				if !c.closed {
-// 					c.ncs[node] = nc
-// 					c.hashRing = c.hashRing.AddNode(node)
-// 					return
-// 				}
-// 				if err := c.Close(); err != nil {
-// 					c.cp.logf("Failed c.Close: %v", err)
-// 				}
-// 			}
-// 		}(_s, n)
-// 	}
-// }
-
 func (c *conn) writestrings(strs ...string) error {
 	for _, s := range strs {
 		if err := c.writestring(s); err != nil {

@@ -24,9 +24,9 @@ const (
 
 // Client is the client of go-memcached.
 type Client struct {
-	servers            Servers
-	hashRing           *hashring.HashRing
-	nextTryReconnectAt time.Time
+	servers  Servers
+	hashRing *hashring.HashRing
+	// nextTryReconnectAt time.Time
 	prefix             string
 	connectTimeout     time.Duration
 	pollTimeout        time.Duration
@@ -52,14 +52,14 @@ func (ss *Servers) getNodeNames() []string {
 	return nodes
 }
 
-func (ss *Servers) getByNode(node string) *Server {
-	for _, s := range *ss {
-		if s.getNodeName() == node {
-			return &s
-		}
-	}
-	return nil
-}
+// func (ss *Servers) getByNode(node string) *Server {
+// 	for _, s := range *ss {
+// 		if s.getNodeName() == node {
+// 			return &s
+// 		}
+// 	}
+// 	return nil
+// }
 
 // Server is the server's info of memcahced.
 type Server struct {
@@ -214,6 +214,7 @@ func (cl *Client) conn(keys ...string) (map[string]*conn, error) {
 		m, err := cl._conn(context.Background(), nodes)
 		return m, errors.Wrap(err, "Failed _conn")
 	}
+	nodeMap := map[string]struct{}{}
 	for _, key := range keys {
 		if len(key) == 0 {
 			continue
@@ -223,6 +224,9 @@ func (cl *Client) conn(keys ...string) (map[string]*conn, error) {
 		if !ok {
 			return map[string]*conn{}, errors.New("Failed GetNode")
 		}
+		nodeMap[node] = struct{}{}
+	}
+	for node := range nodeMap {
 		nodes = append(nodes, node)
 	}
 
@@ -282,11 +286,11 @@ func (cl *Client) putConn(m map[string]*conn, err error) {
 	}
 }
 
-func (cl *Client) removeNode(node string) {
-	cl.mu.Lock()
-	defer cl.mu.Unlock()
-	cl.hashRing = cl.hashRing.RemoveNode(node)
-}
+// func (cl *Client) removeNode(node string) {
+// 	cl.mu.Lock()
+// 	defer cl.mu.Unlock()
+// 	cl.hashRing = cl.hashRing.RemoveNode(node)
+// }
 
 // Close closes all connectionPools and channels
 func (cl *Client) Close() error {
@@ -299,3 +303,52 @@ func (cl *Client) Close() error {
 	}
 	return nil
 }
+
+// func (cl *Client) tryReconnect() {
+// 	if !cl.failover {
+// 		return
+// 	}
+// 	now := time.Now()
+// 	if now.Before(cl.nextTryReconnectAt) {
+// 		return
+// 	}
+// 	defer func() {
+// 		cl.mu.Lock()
+// 		defer cl.mu.Unlock()
+// 		cl.nextTryReconnectAt = now.Add(cl.tryReconnectPeriod)
+// 	}()
+// 	notAliveNodes := make([]string, 0, len(c.ncs))
+// 	for node, nc := range c.ncs {
+// 		if !c.isAlive {
+// 			notAliveNodes = append(notAliveNodes, node)
+// 		}
+// 	}
+// 	if len(notAliveNodes) == 0 {
+// 		return
+// 	}
+// 	for _, n := range notAliveNodes {
+// 		_s := c.cp.servers.getByNode(n)
+// 		if _s == nil {
+// 			continue
+// 		}
+// 		c.cp.logf("Trying reconnect to %s", n)
+// 		go func(s *Server, node string) {
+// 			nc, err := c.newNC(s)
+// 			if err != nil {
+// 				return
+// 			}
+// 			if c.isAlive {
+// 				c.Lock()
+// 				defer c.Unlock()
+// 				if !c.closed {
+// 					c.ncs[node] = nc
+// 					c.hashRing = c.hashRing.AddNode(node)
+// 					return
+// 				}
+// 				if err := c.Close(); err != nil {
+// 					c.cp.logf("Failed c.Close: %v", err)
+// 				}
+// 			}
+// 		}(_s, n)
+// 	}
+// }

@@ -1,8 +1,10 @@
 package memcached
 
 import (
+	"fmt"
 	"testing"
 
+	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -107,6 +109,7 @@ func TestClient_Gat(t *testing.T) {
 	test := func(keys []string, exp int64, evs [][]byte) {
 		is, err := cl.Gat(exp, keys...)
 		if err != nil {
+			fmt.Printf("Error type: %T\n", errors.Cause(err))
 			t.Fatalf("Failed Gat: %v", err)
 		}
 		vs := make([][]byte, len(is))
@@ -117,11 +120,11 @@ func TestClient_Gat(t *testing.T) {
 	}
 	test([]string{"Gat_1"}, 1, [][]byte{[]byte(`{"gat": 1}`)})
 	test([]string{"Gat_2"}, 1, [][]byte{})
-	// keys := make([]string, 201)
-	// for i := 0; i < 201; i++ {
-	// 	keys[i] = fmt.Sprintf("Gat_%d", i)
-	// }
-	// test(keys, 2, [][]byte{[]byte(`{"gat": 1}`)})
+	keys := make([]string, 201)
+	for i := 0; i < 201; i++ {
+		keys[i] = fmt.Sprintf("Gat_%d", i)
+	}
+	test(keys, 2, [][]byte{[]byte(`{"gat": 1}`)})
 }
 
 func TestClient_GatOrSet(t *testing.T) {
