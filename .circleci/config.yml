@@ -6,7 +6,7 @@ executors:
   builder:
     working_directory: *working_directory
     docker:
-      - image: golangci/golangci-lint:latest
+      - image: jumpeimano/go-dep-image:1.12
         environment:
           GO111MODULE: "on"
       - image: memcached
@@ -17,6 +17,12 @@ executors:
         command: ["-port", "11213"]
       - image: memcached
         command: ["-port", "11214"]
+  linter:
+    working_directory: *working_directory
+    docker:
+      - image: golangci/golangci-lint
+        environment:
+          GO111MODULE: "on"
 jobs:
   build:
     executor:
@@ -24,15 +30,38 @@ jobs:
     steps:
       - checkout
       - run:
-          name: lint
+          name: Wait for memcached
           command: |
-            golangci-lint run
-      - run: make test
-
+            dockerize -wait tcp://localhost:11211 -timeout 1m
+            dockerize -wait tcp://localhost:11212 -timeout 1m
+            dockerize -wait tcp://localhost:11213 -timeout 1m
+            dockerize -wait tcp://localhost:11214 -timeout 1m
+      - run:
+          name: test
+          command: make test
+      - persist_to_workspace:
+          root: .
+          paths:
+            - .
+  lint:
+    executor:
+      name: linter
+    steps:
+      - attach_workspace:
+          at: .
+      - run:
+          name: lint
+          command: golangci-lint run
 workflows:
   build:
     jobs:
       - build:
+          filters:
+            tags:
+              only: /.*/
+      - lint:
+          requires:
+            - build
           filters:
             tags:
               only: /.*/
