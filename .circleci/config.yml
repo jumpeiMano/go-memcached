@@ -6,8 +6,12 @@ executors:
   builder:
     working_directory: *working_directory
     machine: true
-    environment:
-      GOPATH: /home/circleci/.go_workspace
+  tester:
+    working_directory: *working_directory
+    docker:
+      - image: golang:1.12
+        environment:
+          GO111MODULE: "on"
 jobs:
   build:
     executor:
@@ -18,24 +22,18 @@ jobs:
           name: docker build
           command: |
             docker-compose build
-      - restore_cache:
-          key: mod-cache-{{ checksum "go.sum" }}-v1?
       - run:
           name: go mod download
           command: |
             make mod-download
       - run:
-          name: chown
-          command: |
-            sudo chown -R circleci:circleci ${GOPATH}/pkg/mod
-      - save_cache:
-          key: mod-cache-{{ checksum "go.sum" }}-v1?
-          paths:
-            - /home/circleci/.go_workspace/pkg/mod
-      - run:
           name: lint
           command: |
             make lint
+  test:
+    executor:
+      name: tester
+    steps:
       - run:
           name: up
           command: |
