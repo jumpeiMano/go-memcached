@@ -6,6 +6,8 @@ executors:
   builder:
     working_directory: *working_directory
     machine: true
+    environment:
+      GOPATH: /home/circleci/.go_workspace
   tester:
     working_directory: *working_directory
     docker:
@@ -30,10 +32,16 @@ jobs:
           name: lint
           command: |
             make lint
+      - persist_to_workspace:
+          root: .
+          paths:
+            - .
   test:
     executor:
       name: tester
     steps:
+      - attach_workspace:
+          at: .
       - run:
           name: up
           command: |
@@ -48,6 +56,12 @@ workflows:
   build_and_deploy:
     jobs:
       - build:
+          filters:
+            tags:
+              only: /.*/
+      - test:
+          requires:
+            - build
           filters:
             tags:
               only: /.*/
