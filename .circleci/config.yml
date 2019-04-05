@@ -10,13 +10,12 @@ executors:
         environment:
           GO111MODULE: "on"
       - image: memcached
-        command: ["-port", "11211"]
       - image: memcached
-        command: ["-port", "11212"]
+        command: ["-p", "11212:11211"]
       - image: memcached
-        command: ["-port", "11213"]
+        command: ["-p", "11213:11211"]
       - image: memcached
-        command: ["-port", "11214"]
+        command: ["-p", "11214:11211"]
   linter:
     working_directory: *working_directory
     docker:
