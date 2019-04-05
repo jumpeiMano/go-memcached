@@ -2,89 +2,24 @@ package memcached
 
 import (
 	"context"
-	"fmt"
 	"log"
-	"strings"
 	"sync"
 	"time"
 
 	"github.com/pkg/errors"
 )
 
-const connRequestQueueSize = 1000000
-
-const (
-	defaultPort               = 11211
-	defaultConnectTimeout     = 1 * time.Second
-	defaultPollTimeout        = 1 * time.Second
-	defaultTryReconnectPeriod = 60 * time.Second
-	defaultKeepAlivePeriod    = 60 * time.Second
-)
-
-// ConnectionPool struct
-type ConnectionPool struct {
-	servers            Servers
-	prefix             string
-	connectTimeout     time.Duration
-	pollTimeout        time.Duration
-	cancelTimeout      time.Duration
-	tryReconnectPeriod time.Duration
-	keepAlivePeriod    time.Duration
-	failover           bool
-	mu                 sync.RWMutex
-	freeConns          []*conn
-	numOpen            int
-	openerCh           chan struct{}
-	connRequests       map[uint64]chan connRequest
-	nextRequest        uint64
-	maxLifetime        time.Duration // maximum amount of time a connection may be reused
-	maxOpen            int           // maximum amount of connection num. maxOpen <= 0 means unlimited.
-	cleanerCh          chan struct{}
-	closed             bool
-
-	logf func(format string, params ...interface{})
-}
-
-// Servers are slice of Server.
-type Servers []Server
-
-func (ss *Servers) getNodeNames() []string {
-	nodes := make([]string, len(*ss))
-	for i, s := range *ss {
-		nodes[i] = s.getNodeName()
-	}
-	return nodes
-}
-
-func (ss *Servers) getByNode(node string) *Server {
-	for _, s := range *ss {
-		if s.getNodeName() == node {
-			return &s
-		}
-	}
-	return nil
-}
-
-// Server is the server's info of memcahced.
-type Server struct {
-	Host  string
-	Port  int
-	Alias string
-}
-
-func (s *Server) getAddr() string {
-	port := s.Port
-	if port == 0 {
-		port = defaultPort
-	}
-	return fmt.Sprintf("%s:%d", s.Host, port)
-}
-
-func (s *Server) getNodeName() string {
-	if s.Alias == "" {
-		return s.getAddr()
-	}
-	return s.Alias
+type connectionPool struct {
+	*Server
+	cl           *Client
+	mu           sync.RWMutex
+	freeConns    []*conn
+	numOpen      int
+	openerCh     chan struct{}
+	connRequests map[uint64]chan connRequest
+	nextRequest  uint64
+	cleanerCh    chan struct{}
+	closed       bool
 }
 
 type connRequest struct {
@@ -92,32 +27,13 @@ type connRequest struct {
 	err error
 }
 
-// New create ConnectionPool
-func New(servers Servers, prefix string) (cp *ConnectionPool) {
-	cp = new(ConnectionPool)
-	cp.servers = servers
-	cp.prefix = prefix
-	cp.openerCh = make(chan struct{}, connRequestQueueSize)
-	cp.connRequests = make(map[uint64]chan connRequest)
-	cp.connectTimeout = defaultConnectTimeout
-	cp.pollTimeout = defaultPollTimeout
-	cp.cancelTimeout = defaultPollTimeout + (3 * time.Second)
-	cp.tryReconnectPeriod = defaultTryReconnectPeriod
-	cp.keepAlivePeriod = defaultKeepAlivePeriod
-	cp.logf = log.Printf
-
-	go cp.opener()
-
-	return
-}
-
-func (cp *ConnectionPool) maybeOpenNewConnections() {
+func (cp *connectionPool) maybeOpenNewConnections() {
 	if cp.closed {
 		return
 	}
 	numRequests := len(cp.connRequests)
-	if cp.maxOpen > 0 {
-		numCanOpen := cp.maxOpen - cp.numOpen
+	if cp.cl.maxOpen > 0 {
+		numCanOpen := cp.cl.maxOpen - cp.numOpen
 		if numRequests > numCanOpen {
 			numRequests = numCanOpen
 		}
@@ -129,20 +45,24 @@ func (cp *ConnectionPool) maybeOpenNewConnections() {
 	}
 }
 
-func (cp *ConnectionPool) opener() {
+func (cp *connectionPool) opener() {
 	for range cp.openerCh {
 		cp.openNewConnection()
 	}
 }
 
-func (cp *ConnectionPool) openNewConnection() {
-	if cp.closed {
+func (cp *connectionPool) openNewConnection() {
+	var closed bool
+	cp.mu.RLock()
+	closed = cp.closed
+	cp.mu.RUnlock()
+	if closed {
 		cp.mu.Lock()
 		cp.numOpen--
 		cp.mu.Unlock()
 		return
 	}
-	c, err := newConn(cp)
+	c, err := newConn(cp.cl, cp.Server)
 	if err != nil {
 		cp.mu.Lock()
 		defer cp.mu.Unlock()
@@ -160,7 +80,7 @@ func (cp *ConnectionPool) openNewConnection() {
 	cp.mu.Unlock()
 }
 
-func (cp *ConnectionPool) putConn(c *conn, err error) error {
+func (cp *connectionPool) putConn(c *conn, err error) error {
 	cp.mu.Lock()
 	if needCloseConn(err) ||
 		!cp.putConnLocked(c, nil) {
@@ -173,11 +93,11 @@ func (cp *ConnectionPool) putConn(c *conn, err error) error {
 	return err
 }
 
-func (cp *ConnectionPool) putConnLocked(c *conn, err error) bool {
+func (cp *connectionPool) putConnLocked(c *conn, err error) bool {
 	if cp.closed {
 		return false
 	}
-	if cp.maxOpen > 0 && cp.maxOpen < cp.numOpen {
+	if cp.cl.maxOpen > 0 && cp.cl.maxOpen < cp.numOpen {
 		return false
 	}
 	if len(cp.connRequests) > 0 {
@@ -198,7 +118,7 @@ func (cp *ConnectionPool) putConnLocked(c *conn, err error) bool {
 	return true
 }
 
-func (cp *ConnectionPool) conn(ctx context.Context) (*conn, error) {
+func (cp *connectionPool) conn(ctx context.Context) (*conn, error) {
 	cn, err := cp._conn(ctx, true)
 	if err == nil {
 		return cn, nil
@@ -209,7 +129,7 @@ func (cp *ConnectionPool) conn(ctx context.Context) (*conn, error) {
 	return cn, err
 }
 
-func (cp *ConnectionPool) _conn(ctx context.Context, useFreeConn bool) (*conn, error) {
+func (cp *connectionPool) _conn(ctx context.Context, useFreeConn bool) (*conn, error) {
 	cp.mu.Lock()
 	if cp.closed {
 		cp.mu.Unlock()
@@ -222,7 +142,7 @@ func (cp *ConnectionPool) _conn(ctx context.Context, useFreeConn bool) (*conn, e
 		cp.mu.Unlock()
 		return nil, errors.Wrap(ctx.Err(), "the context is expired")
 	}
-	lifetime := cp.maxLifetime
+	lifetime := cp.cl.maxLifetime
 
 	var c *conn
 	numFree := len(cp.freeConns)
@@ -238,12 +158,12 @@ func (cp *ConnectionPool) _conn(ctx context.Context, useFreeConn bool) (*conn, e
 			c.close()
 			return nil, ErrBadConn
 		}
-		c.tryReconnect()
-		err := c.setDeadline()
-		return c, errors.Wrap(err, "Failed setDeadline")
+		// c.tryReconnect()
+		err := c.reset()
+		return c, errors.Wrap(err, "Failed reset")
 	}
 
-	if cp.maxOpen > 0 && cp.maxOpen <= cp.numOpen {
+	if cp.cl.maxOpen > 0 && cp.cl.maxOpen <= cp.numOpen {
 		req := make(chan connRequest, 1)
 		reqKey := cp.nextRequest
 		cp.nextRequest++
@@ -275,15 +195,15 @@ func (cp *ConnectionPool) _conn(ctx context.Context, useFreeConn bool) (*conn, e
 			if ret.err != nil {
 				return ret.conn, errors.Wrap(ret.err, "Response has an error")
 			}
-			ret.conn.tryReconnect()
-			err := ret.conn.setDeadline()
-			return ret.conn, errors.Wrap(err, "Failed setDeadline in response")
+			// ret.conn.tryReconnect()
+			err := ret.conn.reset()
+			return ret.conn, errors.Wrap(err, "Failed reset in response")
 		}
 	}
 
 	cp.numOpen++
 	cp.mu.Unlock()
-	newCn, err := newConn(cp)
+	newCn, err := newConn(cp.cl, cp.Server)
 	if err != nil {
 		cp.mu.Lock()
 		defer cp.mu.Unlock()
@@ -291,99 +211,28 @@ func (cp *ConnectionPool) _conn(ctx context.Context, useFreeConn bool) (*conn, e
 		cp.maybeOpenNewConnections()
 		return nil, errors.Wrap(err, "Failed newConn")
 	}
-	err = newCn.setDeadline()
-	return newCn, errors.Wrap(err, "Failed setDeadline of new conn")
+	err = newCn.reset()
+	return newCn, errors.Wrap(err, "Failed reset of new conn")
 }
 
-// SetConnMaxLifetime sets the maximum amount of time a connection may be reused.
-//
-// Expired connections may be closed lazily before reuse.
-//
-// If d <= 0, connections are reused forever.
-func (cp *ConnectionPool) SetConnMaxLifetime(d time.Duration) {
-	if d < 0 {
-		d = 0
-	}
-	cp.mu.Lock()
-	defer cp.mu.Unlock()
-	// wake cleaner up when lifetime is shortened.
-	if d > 0 && d < cp.maxLifetime && cp.cleanerCh != nil {
-		select {
-		case cp.cleanerCh <- struct{}{}:
-		default:
-		}
-	}
-	cp.maxLifetime = d
-	cp.startCleanerLocked()
-}
-
-// SetConnectTimeout sets the timeout of connect to memcached server.
-func (cp *ConnectionPool) SetConnectTimeout(timeout time.Duration) {
-	cp.mu.Lock()
-	defer cp.mu.Unlock()
-	cp.connectTimeout = timeout
-}
-
-// SetPollTimeout sets the timeout of polling from memcached server.
-func (cp *ConnectionPool) SetPollTimeout(timeout time.Duration) {
-	cp.mu.Lock()
-	defer cp.mu.Unlock()
-	cp.pollTimeout = timeout
-	cp.cancelTimeout = timeout + (3 * time.Second)
-}
-
-// SetTryReconnectPeriod sets the period of trying reconnect.
-func (cp *ConnectionPool) SetTryReconnectPeriod(period time.Duration) {
-	cp.mu.Lock()
-	defer cp.mu.Unlock()
-	cp.tryReconnectPeriod = period
-}
-
-// SetKeepAlivePeriod sets the period of keep alive.
-func (cp *ConnectionPool) SetKeepAlivePeriod(period time.Duration) {
-	cp.mu.Lock()
-	defer cp.mu.Unlock()
-	cp.keepAlivePeriod = period
-}
-
-// SetConnMaxOpen sets the maximum amount of opening connections.
-func (cp *ConnectionPool) SetConnMaxOpen(maxOpen int) {
-	cp.mu.Lock()
-	defer cp.mu.Unlock()
-	cp.maxOpen = maxOpen
-}
-
-// SetFailover is used to specify whether to use the failover option.
-func (cp *ConnectionPool) SetFailover(failover bool) {
-	cp.mu.Lock()
-	defer cp.mu.Unlock()
-	cp.failover = failover
-}
-
-// SetLogger is used to set logger
-func (cp *ConnectionPool) SetLogger(logf func(format string, params ...interface{})) {
-	cp.mu.Lock()
-	defer cp.mu.Unlock()
-	cp.logf = logf
-}
-
-func (cp *ConnectionPool) needStartCleaner() bool {
-	return cp.maxLifetime > 0 &&
+func (cp *connectionPool) needStartCleaner() bool {
+	return cp.cl.maxLifetime > 0 &&
 		cp.numOpen > 0 &&
 		cp.cleanerCh == nil
 }
 
 // startCleanerLocked starts connectionCleaner if needed.
-func (cp *ConnectionPool) startCleanerLocked() {
+func (cp *connectionPool) startCleanerLocked() {
 	if cp.needStartCleaner() {
 		cp.cleanerCh = make(chan struct{}, 1)
-		go cp.connectionCleaner(cp.maxLifetime)
+		go cp.connectionCleaner()
 	}
 }
 
-func (cp *ConnectionPool) connectionCleaner(d time.Duration) {
+func (cp *connectionPool) connectionCleaner() {
 	const minInterval = time.Second
 
+	d := cp.cl.maxLifetime
 	if d < minInterval {
 		d = minInterval
 	}
@@ -396,7 +245,7 @@ func (cp *ConnectionPool) connectionCleaner(d time.Duration) {
 		}
 
 		cp.mu.Lock()
-		d = cp.maxLifetime
+		d = cp.cl.maxLifetime
 		if cp.closed || cp.numOpen == 0 || d <= 0 {
 			cp.cleanerCh = nil
 			cp.mu.Unlock()
@@ -432,28 +281,7 @@ func (cp *ConnectionPool) connectionCleaner(d time.Duration) {
 	}
 }
 
-func (cp *ConnectionPool) removePrefix(key string) string {
-	if len(cp.prefix) == 0 {
-		return key
-	}
-	if strings.HasPrefix(key, "?") {
-		return strings.Join([]string{"?", strings.Replace(key[1:], cp.prefix, "", 1)}, "")
-	}
-	return strings.Replace(key, cp.prefix, "", 1)
-}
-
-func (cp *ConnectionPool) addPrefix(key string) string {
-	if len(cp.prefix) == 0 {
-		return key
-	}
-	if strings.HasPrefix(key, "?") {
-		return strings.Join([]string{"?", cp.prefix, key[1:]}, "")
-	}
-	return strings.Join([]string{cp.prefix, key}, "")
-}
-
-// Close will close the sockets to each memcached server
-func (cp *ConnectionPool) Close() error {
+func (cp *connectionPool) close() error {
 	cp.mu.Lock()
 	if cp.closed {
 		cp.mu.Unlock()
