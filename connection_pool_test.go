@@ -2,7 +2,10 @@ package memcached
 
 import (
 	"context"
+	"log"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestConnectionPool_MaybeOpenNewConnections(t *testing.T) {
@@ -31,6 +34,27 @@ func TestConnectionPool_OpenNewConnection(t *testing.T) {
 	cpClose.closed = true
 	cpClose.mu.Unlock()
 	cpClose.openNewConnection()
+}
+
+func TestNewConn(t *testing.T) {
+	_ss := []Server{
+		{Host: "127.0.0.1", Port: 11211},
+		{Host: "127.0.0.1", Port: 99999},
+	}
+	_cl := New(_ss, "")
+	defer _cl.Close()
+	_cl.SetLogger(log.Printf)
+	cp1 := _cl.cps[_ss[0].getNodeName()]
+	cp2 := _cl.cps[_ss[1].getNodeName()]
+	cp1.mu.Lock()
+	defer cp1.mu.Unlock()
+	c, err := cp1.newConn()
+	assert.NotNil(t, c)
+	assert.Nil(t, err)
+	c.close()
+	c2, err := cp2.newConn()
+	assert.Nil(t, c2)
+	assert.NotNil(t, err)
 }
 
 func TestConnectionPool_PutConnLocked(t *testing.T) {

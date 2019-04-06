@@ -338,6 +338,9 @@ func TestClient_Cas(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Failed Gets: Key: %s, err: %v", item.Key, err)
 		}
+		if len(is) == 0 {
+			t.Fatalf("cache miss")
+		}
 		item.Cas = is[0].Cas
 		if pattern == "before" {
 			if _, err = cl.Append(false, &Item{Key: item.Key, Value: []byte("update"), Exp: 1}); err != nil {

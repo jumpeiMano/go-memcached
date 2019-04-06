@@ -23,37 +23,11 @@ type conn struct {
 // Error
 var (
 	ErrMemcachedClosed = errors.New("memcached is closed")
+	ErrDeadNode        = errors.New("dead node")
+	ErrConnect         = errors.New("connect error")
 	ErrBadConn         = errors.New("bad conn")
 	ErrNotFound        = errors.New("not found")
 )
-
-func newConn(cl *Client, s *Server) (*conn, error) {
-	network := "tcp"
-	if strings.Contains(s.Host, "/") {
-		network = "unix"
-	}
-	c := new(conn)
-	c.cl = cl
-	var err error
-	c.Conn, err = net.DialTimeout(network, s.getAddr(), cl.connectTimeout)
-	if err != nil {
-		return nil, errors.Wrap(err, "Failed DialTimeout")
-	}
-	if tcpconn, ok := c.Conn.(*net.TCPConn); ok {
-		if err = tcpconn.SetKeepAlive(true); err != nil {
-			return nil, errors.Wrap(err, "Failed SetKeepAlive")
-		}
-		if err = tcpconn.SetKeepAlivePeriod(c.cl.keepAlivePeriod); err != nil {
-			return nil, errors.Wrap(err, "Failed SetKeepAlivePeriod")
-		}
-	}
-	c.buffered = bufio.ReadWriter{
-		Reader: bufio.NewReader(c),
-		Writer: bufio.NewWriter(c),
-	}
-	c.isAlive = true
-	return c, nil
-}
 
 func (c *conn) reset() error {
 	if rb := c.buffered.Reader.Buffered(); rb > 0 {

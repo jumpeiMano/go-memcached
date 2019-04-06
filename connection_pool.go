@@ -1,8 +1,11 @@
 package memcached
 
 import (
+	"bufio"
 	"context"
 	"log"
+	"net"
+	"strings"
 	"sync"
 	"time"
 
@@ -11,15 +14,17 @@ import (
 
 type connectionPool struct {
 	*Server
-	cl           *Client
-	mu           sync.RWMutex
-	freeConns    []*conn
-	numOpen      int
-	openerCh     chan struct{}
-	connRequests map[uint64]chan connRequest
-	nextRequest  uint64
-	cleanerCh    chan struct{}
-	closed       bool
+	cl                 *Client
+	mu                 sync.RWMutex
+	freeConns          []*conn
+	numOpen            int
+	openerCh           chan struct{}
+	connRequests       map[uint64]chan connRequest
+	nextRequest        uint64
+	cleanerCh          chan struct{}
+	connectErrorCount  int64
+	connectErrorPeriod time.Time
+	closed             bool
 }
 
 type connRequest struct {
@@ -62,7 +67,7 @@ func (cp *connectionPool) openNewConnection() {
 		cp.mu.Unlock()
 		return
 	}
-	c, err := newConn(cp.cl, cp.Server)
+	c, err := cp.newConn()
 	if err != nil {
 		cp.mu.Lock()
 		defer cp.mu.Unlock()
@@ -70,14 +75,37 @@ func (cp *connectionPool) openNewConnection() {
 		cp.maybeOpenNewConnections()
 		return
 	}
-	cp.mu.Lock()
-	if !cp.putConnLocked(c, nil) {
-		cp.numOpen--
-		cp.mu.Unlock()
-		c.close()
-		return
+	if err = cp.putConn(c, nil); err != nil {
+		cp.cl.logf("Failed putConn: %v", err)
 	}
-	cp.mu.Unlock()
+}
+
+func (cp *connectionPool) newConn() (*conn, error) {
+	network := "tcp"
+	if strings.Contains(cp.Server.Host, "/") {
+		network = "unix"
+	}
+	c := new(conn)
+	c.cl = cp.cl
+	var err error
+	c.Conn, err = net.DialTimeout(network, cp.getAddr(), cp.cl.connectTimeout)
+	if err != nil {
+		return nil, errors.Wrapf(ErrConnect, "Failed DialTimeout: %v", err)
+	}
+	if tcpconn, ok := c.Conn.(*net.TCPConn); ok {
+		if err = tcpconn.SetKeepAlive(true); err != nil {
+			return nil, errors.Wrap(err, "Failed SetKeepAlive")
+		}
+		if err = tcpconn.SetKeepAlivePeriod(c.cl.keepAlivePeriod); err != nil {
+			return nil, errors.Wrap(err, "Failed SetKeepAlivePeriod")
+		}
+	}
+	c.buffered = bufio.ReadWriter{
+		Reader: bufio.NewReader(c),
+		Writer: bufio.NewWriter(c),
+	}
+	c.isAlive = true
+	return c, nil
 }
 
 func (cp *connectionPool) putConn(c *conn, err error) error {
@@ -91,6 +119,24 @@ func (cp *connectionPool) putConn(c *conn, err error) error {
 	}
 	cp.mu.Unlock()
 	return err
+}
+
+func (cp *connectionPool) circuitBreaker(err error) bool {
+	if !cp.cl.failover {
+		return false
+	}
+	if errors.Cause(err) != ErrConnect {
+		return false
+	}
+	cp.mu.Lock()
+	defer cp.mu.Unlock()
+	now := time.Now()
+	if cp.connectErrorPeriod.After(now) {
+		cp.connectErrorPeriod = now.Add(cp.cl.tryReconnectPeriod)
+		cp.connectErrorCount = 0
+	}
+	cp.connectErrorCount++
+	return cp.connectErrorCount >= cp.cl.maxErrorCount
 }
 
 func (cp *connectionPool) putConnLocked(c *conn, err error) bool {
@@ -203,7 +249,7 @@ func (cp *connectionPool) _conn(ctx context.Context, useFreeConn bool) (*conn, e
 
 	cp.numOpen++
 	cp.mu.Unlock()
-	newCn, err := newConn(cp.cl, cp.Server)
+	newCn, err := cp.newConn()
 	if err != nil {
 		cp.mu.Lock()
 		defer cp.mu.Unlock()
@@ -305,6 +351,7 @@ func (cp *connectionPool) close() error {
 	}
 	cp.mu.Lock()
 	cp.freeConns = nil
+	cp.numOpen = 0
 	cp.mu.Unlock()
 
 	return err
@@ -316,8 +363,5 @@ func needCloseConn(err error) bool {
 	}
 	errcouse := errors.Cause(err)
 	return errcouse == ErrBadConn ||
-		errcouse == ErrServer ||
-		errcouse == ErrCanceldByContext ||
-		errcouse == context.DeadlineExceeded ||
-		errcouse == context.Canceled
+		errcouse == ErrServer
 }

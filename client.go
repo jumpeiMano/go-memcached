@@ -20,17 +20,16 @@ const (
 	defaultPollTimeout        = 1 * time.Second
 	defaultTryReconnectPeriod = 60 * time.Second
 	defaultKeepAlivePeriod    = 60 * time.Second
+	defaultMaxErrorCount      = 100
 )
 
 // Client is the client of go-memcached.
 type Client struct {
-	servers  Servers
-	hashRing *hashring.HashRing
-	// nextTryReconnectAt time.Time
+	servers            Servers
+	hashRing           *hashring.HashRing
 	prefix             string
 	connectTimeout     time.Duration
 	pollTimeout        time.Duration
-	cancelTimeout      time.Duration
 	tryReconnectPeriod time.Duration
 	keepAlivePeriod    time.Duration
 	failover           bool
@@ -38,6 +37,7 @@ type Client struct {
 	maxLifetime        time.Duration // maximum amount of time a connection may be reused
 	mu                 sync.RWMutex
 	cps                map[string]*connectionPool
+	maxErrorCount      int64
 	logf               func(format string, params ...interface{})
 }
 
@@ -51,15 +51,6 @@ func (ss *Servers) getNodeNames() []string {
 	}
 	return nodes
 }
-
-// func (ss *Servers) getByNode(node string) *Server {
-// 	for _, s := range *ss {
-// 		if s.getNodeName() == node {
-// 			return &s
-// 		}
-// 	}
-// 	return nil
-// }
 
 // Server is the server's info of memcahced.
 type Server struct {
@@ -91,23 +82,27 @@ func New(servers Servers, prefix string) (cl *Client) {
 	cl.prefix = prefix
 	cl.connectTimeout = defaultConnectTimeout
 	cl.pollTimeout = defaultPollTimeout
-	cl.cancelTimeout = defaultPollTimeout + (3 * time.Second)
 	cl.tryReconnectPeriod = defaultTryReconnectPeriod
 	cl.keepAlivePeriod = defaultKeepAlivePeriod
+	cl.maxErrorCount = defaultMaxErrorCount
 	cl.logf = log.Printf
 
 	cl.cps = make(map[string]*connectionPool, len(servers))
-	for _, s := range servers {
-		cp := new(connectionPool)
-		cp.cl = cl
-		cp.Server = &s
-		cp.openerCh = make(chan struct{}, connRequestQueueSize)
-		cp.connRequests = make(map[uint64]chan connRequest)
-		go cp.opener()
-		cl.cps[s.getNodeName()] = cp
+	for i := range servers {
+		cl.cps[servers[i].getNodeName()] = cl.openConnectionPool(&servers[i])
 	}
 
 	return
+}
+
+func (cl *Client) openConnectionPool(server *Server) *connectionPool {
+	cp := new(connectionPool)
+	cp.cl = cl
+	cp.Server = server
+	cp.openerCh = make(chan struct{}, connRequestQueueSize)
+	cp.connRequests = make(map[uint64]chan connRequest)
+	go cp.opener()
+	return cp
 }
 
 // SetConnMaxLifetime sets the maximum amount of time a connection may be reused.
@@ -147,7 +142,6 @@ func (cl *Client) SetPollTimeout(timeout time.Duration) {
 	cl.mu.Lock()
 	defer cl.mu.Unlock()
 	cl.pollTimeout = timeout
-	cl.cancelTimeout = timeout + (3 * time.Second)
 }
 
 // SetTryReconnectPeriod sets the period of trying reconnect.
@@ -155,6 +149,13 @@ func (cl *Client) SetTryReconnectPeriod(period time.Duration) {
 	cl.mu.Lock()
 	defer cl.mu.Unlock()
 	cl.tryReconnectPeriod = period
+}
+
+// SetMaxErrorCount sets the max of error count to close the connection pool.
+func (cl *Client) SetMaxErrorCount(count int64) {
+	cl.mu.Lock()
+	defer cl.mu.Unlock()
+	cl.maxErrorCount = count
 }
 
 // SetKeepAlivePeriod sets the period of keep alive.
@@ -244,13 +245,23 @@ func (cl *Client) _conn(ctx context.Context, nodes []string) (map[string]*conn, 
 	ec := make(chan error, nl)
 	for _, node := range nodes {
 		wg.Add(1)
-		go func(n string) {
+		go func(node string) {
 			defer wg.Done()
-			c, err := cl.cps[n].conn(ctx)
+			cp := cl.cps[node]
+			if cp.closed {
+				return
+			}
+			c, err := cp.conn(ctx)
 			if err != nil {
 				ec <- errors.Wrap(err, "Failed conn")
+
+				if cp.circuitBreaker(err) {
+					cl.removeNode(node)
+					cp.close()
+					go cl.tryReconnect()
+				}
 			}
-			sm.Store(n, c)
+			sm.Store(node, c)
 		}(node)
 	}
 	wg.Wait()
@@ -286,11 +297,17 @@ func (cl *Client) putConn(m map[string]*conn, err error) {
 	}
 }
 
-// func (cl *Client) removeNode(node string) {
-// 	cl.mu.Lock()
-// 	defer cl.mu.Unlock()
-// 	cl.hashRing = cl.hashRing.RemoveNode(node)
-// }
+func (cl *Client) addNode(node string) {
+	cl.mu.Lock()
+	defer cl.mu.Unlock()
+	cl.hashRing = cl.hashRing.AddNode(node)
+}
+
+func (cl *Client) removeNode(node string) {
+	cl.mu.Lock()
+	defer cl.mu.Unlock()
+	cl.hashRing = cl.hashRing.RemoveNode(node)
+}
 
 // Close closes all connectionPools and channels
 func (cl *Client) Close() error {
@@ -304,51 +321,35 @@ func (cl *Client) Close() error {
 	return nil
 }
 
-// func (cl *Client) tryReconnect() {
-// 	if !cl.failover {
-// 		return
-// 	}
-// 	now := time.Now()
-// 	if now.Before(cl.nextTryReconnectAt) {
-// 		return
-// 	}
-// 	defer func() {
-// 		cl.mu.Lock()
-// 		defer cl.mu.Unlock()
-// 		cl.nextTryReconnectAt = now.Add(cl.tryReconnectPeriod)
-// 	}()
-// 	notAliveNodes := make([]string, 0, len(c.ncs))
-// 	for node, nc := range c.ncs {
-// 		if !c.isAlive {
-// 			notAliveNodes = append(notAliveNodes, node)
-// 		}
-// 	}
-// 	if len(notAliveNodes) == 0 {
-// 		return
-// 	}
-// 	for _, n := range notAliveNodes {
-// 		_s := c.cp.servers.getByNode(n)
-// 		if _s == nil {
-// 			continue
-// 		}
-// 		c.cp.logf("Trying reconnect to %s", n)
-// 		go func(s *Server, node string) {
-// 			nc, err := c.newNC(s)
-// 			if err != nil {
-// 				return
-// 			}
-// 			if c.isAlive {
-// 				c.Lock()
-// 				defer c.Unlock()
-// 				if !c.closed {
-// 					c.ncs[node] = nc
-// 					c.hashRing = c.hashRing.AddNode(node)
-// 					return
-// 				}
-// 				if err := c.Close(); err != nil {
-// 					c.cp.logf("Failed c.Close: %v", err)
-// 				}
-// 			}
-// 		}(_s, n)
-// 	}
-// }
+func (cl *Client) tryReconnect() {
+	for {
+		time.Sleep(cl.tryReconnectPeriod)
+		closedPools := make(map[string]*connectionPool, len(cl.cps))
+		for node, cp := range cl.cps {
+			if cp.closed {
+				closedPools[node] = cp
+			}
+		}
+		if len(closedPools) == 0 {
+			return
+		}
+
+		var existsDeadConn bool
+		for node, cp := range closedPools {
+			if c, err := cp.newConn(); err == nil {
+				c.close()
+				cl.addNode(node)
+				cp.mu.Lock()
+				cp.closed = false
+				cp.openerCh = make(chan struct{}, connRequestQueueSize)
+				cp.mu.Unlock()
+				go cp.opener()
+				continue
+			}
+			existsDeadConn = true
+		}
+		if !existsDeadConn {
+			return
+		}
+	}
+}

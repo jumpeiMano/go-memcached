@@ -47,20 +47,35 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
-func Test_SetConnMaxLifetime(t *testing.T) {
+func TestClient_SetConnMaxLifetime(t *testing.T) {
 	lifetime := 10 * time.Second
 	cl.SetConnMaxLifetime(lifetime)
 	assert.Equal(t, lifetime, cl.maxLifetime)
 }
 
-func Test_SetConnectTimeout(t *testing.T) {
+func TestClient_SetConnectTimeout(t *testing.T) {
 	timeout := 3 * time.Second
 	cl.SetConnectTimeout(timeout)
 	assert.Equal(t, timeout, cl.connectTimeout)
 }
 
-func Test_SetPollTimeout(t *testing.T) {
+func TestClient_SetPollTimeout(t *testing.T) {
 	timeout := 1 * time.Second
 	cl.SetPollTimeout(timeout)
 	assert.Equal(t, timeout, cl.pollTimeout)
 }
+
+// func TestClient_TryReconnect(t *testing.T) {
+// 	_ss := []Server{
+// 		{Host: "127.0.0.1", Port: 11211, Alias: "1"},
+// 		{Host: "127.0.0.1", Port: 11215, Alias: "5"},
+// 	}
+// 	_cl := New(_ss, "")
+// 	defer _cl.Close()
+// 	_cl.SetFailover(true)
+// 	_cl.SetLogger(log.Printf)
+// 	_cl.SetTryReconnectPeriod(1 * time.Second)
+// 	go cl.tryReconnect()
+// 	time.Sleep(10 * time.Second)
+// 	assert.Equal(t, false, _cl.cps["5"].closed)
+// }
