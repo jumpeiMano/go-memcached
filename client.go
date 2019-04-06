@@ -206,7 +206,7 @@ func (cl *Client) addPrefix(key string) string {
 }
 
 func (cl *Client) conn(keys ...string) (map[string]*conn, error) {
-	var nodes []string
+	nodes := make([]string, 0, len(cl.cps))
 	if len(keys) == 0 {
 		for node := range cl.cps {
 			nodes = append(nodes, node)

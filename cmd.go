@@ -322,12 +322,14 @@ func (cl *Client) Delete(noreply bool, keys ...string) (failedKeys []string, err
 	wg.Wait()
 	close(failedKeyChan)
 	if noreply {
-		for _, _c := range connMap {
+		for _, c := range connMap {
 			wg.Add(1)
 			go func(c *conn) {
 				defer wg.Done()
-				ec <- c.flush()
-			}(_c)
+				if err := c.flush(); err != nil {
+					ec <- errors.Wrap(err, "Failed flush")
+				}
+			}(c)
 		}
 		wg.Wait()
 	}
@@ -392,7 +394,6 @@ func (cl *Client) Stats(argument string) (resultMap map[string][]byte, err error
 				return resultMap, errors.Wrap(err, "Failed writestrings")
 			}
 		}
-		c.flush()
 		var result []byte
 		for {
 			l, err := c.readline()
@@ -402,11 +403,11 @@ func (cl *Client) Stats(argument string) (resultMap map[string][]byte, err error
 			if strings.HasPrefix(l, "END") {
 				break
 			}
+			if err = handleError(l); err != nil {
+				return resultMap, err
+			}
 			result = append(result, l...)
 			result = append(result, '\n')
-			if strings.Contains(l, "ERROR") {
-				break
-			}
 		}
 		resultMap[node] = result
 	}
@@ -663,7 +664,9 @@ func (cl *Client) store(command string, items []*Item, noreply bool) ([]string, 
 			wg.Add(1)
 			go func(c *conn) {
 				defer wg.Done()
-				ec <- c.flush()
+				if err := c.flush(); err != nil {
+					ec <- errors.Wrap(err, "Failed flush")
+				}
 			}(_c)
 		}
 	}

@@ -3,6 +3,7 @@ package memcached
 import (
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
@@ -323,12 +324,14 @@ func TestClient_Prepend(t *testing.T) {
 }
 
 func TestClient_Cas(t *testing.T) {
-	if _, err := cl.Set(false, &Item{Key: "Cas_1", Value: []byte(`{"cas": 1}`), Exp: 1}); err != nil {
+	items := []*Item{
+		{Key: "Cas_1", Value: []byte(`{"cas": 1}`), Exp: 1},
+		{Key: "Cas_2", Value: []byte(`{"cas": 2}`), Exp: 1},
+	}
+	if _, err := cl.Set(true, items...); err != nil {
 		t.Fatalf("Failed Set: %v", err)
 	}
-	if _, err := cl.Set(false, &Item{Key: "Cas_2", Value: []byte(`{"cas": 2}`), Exp: 1}); err != nil {
-		t.Fatalf("Failed Set: %v", err)
-	}
+	time.Sleep(100 * time.Millisecond)
 	test := func(pattern string, item *Item, eBool bool, evs [][]byte) {
 		is, err := cl.Gets(item.Key)
 		if err != nil {
@@ -360,7 +363,7 @@ func TestClient_Cas(t *testing.T) {
 }
 
 func TestClient_Touch(t *testing.T) {
-	if _, err := cl.Set(true, &Item{Key: "touch_1", Value: []byte(`{"id": 1, "test": "ok"}`), Exp: 1}); err != nil {
+	if _, err := cl.Set(false, &Item{Key: "touch_1", Value: []byte(`{"id": 1, "test": "ok"}`), Exp: 1}); err != nil {
 		t.Fatalf("Failed Set: %v", err)
 	}
 	if err := cl.Touch("touch_1", 1, false); err != nil {
@@ -385,6 +388,7 @@ func TestClient_Delete(t *testing.T) {
 			t.Fatalf("Failed Delete: %v", err)
 		}
 		assert.Equal(t, eBool, len(failedKeys) < 1)
+		time.Sleep(10 * time.Millisecond)
 		is, err := cl.Get(keys...)
 		if err != nil {
 			t.Fatalf("Failed Get: %v", err)
