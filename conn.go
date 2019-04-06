@@ -17,7 +17,6 @@ type conn struct {
 	net.Conn
 	buffered  bufio.ReadWriter
 	isAlive   bool
-	rownum    int
 	createdAt time.Time
 }
 
@@ -57,7 +56,16 @@ func newConn(cl *Client, s *Server) (*conn, error) {
 }
 
 func (c *conn) reset() error {
-	c.rownum = 0
+	if rb := c.buffered.Reader.Buffered(); rb > 0 {
+		if _, err := c.buffered.Discard(rb); err != nil {
+			return errors.Wrap(err, "Failed Discard")
+		}
+	}
+	if wb := c.buffered.Writer.Buffered(); wb > 0 {
+		if err := c.flush(); err != nil {
+			return errors.Wrap(err, "Failed flush")
+		}
+	}
 	return c.setDeadline()
 }
 

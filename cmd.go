@@ -281,12 +281,12 @@ func (cl *Client) Delete(noreply bool, keys ...string) (failedKeys []string, err
 		if !ok {
 			return []string{}, errors.New("Failed GetNode")
 		}
-		_c, ok := connMap[node]
+		c, ok := connMap[node]
 		if !ok {
 			return []string{}, fmt.Errorf("Failed to get a connection: %s", node)
 		}
 		wg.Add(1)
-		go func(c *conn, key string) {
+		go func(c *conn, key, rawkey string) {
 			defer wg.Done()
 			c.mu.Lock()
 			defer c.mu.Unlock()
@@ -317,7 +317,7 @@ func (cl *Client) Delete(noreply bool, keys ...string) (failedKeys []string, err
 			if !strings.HasPrefix(reply, "DELETED") {
 				failedKeyChan <- key
 			}
-		}(_c, key)
+		}(c, key, rawkey)
 	}
 	wg.Wait()
 	close(failedKeyChan)
@@ -447,7 +447,7 @@ func (cl *Client) getOrGat(command string, exp int64, keys []string) ([]*Item, e
 		if !ok {
 			return results, fmt.Errorf("Failed to get a connection: %s", node)
 		}
-		if c.rownum == 0 {
+		if c.buffered.Writer.Buffered() == 0 {
 			if err := c.writestrings(command); err != nil {
 				return results, errors.Wrap(err, "Failed writestrings")
 			}
@@ -463,12 +463,11 @@ func (cl *Client) getOrGat(command string, exp int64, keys []string) ([]*Item, e
 		if err := c.writestrings(" ", rawkey); err != nil {
 			return results, errors.Wrap(err, "Failed writestrings")
 		}
-		c.rownum++
 	}
 
 	var wg sync.WaitGroup
 	ec := make(chan error, len(connMap))
-	for _, _c := range connMap {
+	for _, c := range connMap {
 		wg.Add(1)
 		go func(c *conn) {
 			defer wg.Done()
@@ -526,7 +525,7 @@ func (cl *Client) getOrGat(command string, exp int64, keys []string) ([]*Item, e
 				ec <- errors.Wrapf(ErrBadConn, "Malformed response: %s", string(header))
 				return
 			}
-		}(_c)
+		}(c)
 	}
 	wg.Wait()
 	close(ec)
@@ -582,12 +581,12 @@ func (cl *Client) store(command string, items []*Item, noreply bool) ([]string, 
 		if !ok {
 			return failedKeys, errors.New("Failed GetNode")
 		}
-		_c, ok := connMap[node]
+		c, ok := connMap[node]
 		if !ok {
 			return failedKeys, fmt.Errorf("Failed to get a connection: %s", node)
 		}
 		wg.Add(1)
-		go func(c *conn, item *Item) {
+		go func(c *conn, item *Item, rawkey string) {
 			defer wg.Done()
 			c.mu.Lock()
 			defer c.mu.Unlock()
@@ -656,7 +655,7 @@ func (cl *Client) store(command string, items []*Item, noreply bool) ([]string, 
 			if !strings.HasPrefix(reply, "STORED") {
 				failedKeyChan <- item.Key
 			}
-		}(_c, item)
+		}(c, item, rawkey)
 	}
 	wg.Wait()
 	if noreply {
