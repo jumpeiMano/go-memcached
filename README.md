@@ -17,13 +17,13 @@ import (
 )
 
 func main() {
-  cp := gm.New(
+  cl := gm.New(
     gm.Servers{
       {Host: "localhost", Port: 11211, Alias: "mem1"},
     }, "prefix",
   )
-  defer cp.Close()
-  items, err := cp.Get("key1", "key2")
+  defer cl.Close()
+  items, err := cl.Get("key1", "key2")
   if err != nil {
     log.Fatalf("Failed Get: %+v", err)
   }
