@@ -39,3 +39,7 @@ services:
     image: memcached
     ports:
       - "11214:11211"
+  memcached_5:
+    image: memcached
+    ports:
+      - "11215:11211"

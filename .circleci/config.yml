@@ -5,9 +5,23 @@ references:
 executors:
   builder:
     working_directory: *working_directory
-    machine: true
-    environment:
-      GOPATH: /home/circleci/.go_workspace
+    docker:
+      - image: jumpeimano/go-dep-image:1.12
+        environment:
+          GO111MODULE: "on"
+      - image: memcached
+      - image: memcached
+        command: ["-p", "11212:11211"]
+      - image: memcached
+        command: ["-p", "11213:11211"]
+      - image: memcached
+        command: ["-p", "11214:11211"]
+  linter:
+    working_directory: *working_directory
+    docker:
+      - image: golangci/golangci-lint
+        environment:
+          GO111MODULE: "on"
 jobs:
   build:
     executor:
@@ -15,41 +29,38 @@ jobs:
     steps:
       - checkout
       - run:
-          name: docker build
-          command: |
-            docker-compose build
-      - restore_cache:
-          key: mod-cache-{{ checksum "go.sum" }}-v1?
-      - run:
-          name: go mod download
-          command: |
-            make mod-download
-      - run:
-          name: chown
-          command: |
-            sudo chown -R circleci:circleci ${GOPATH}/pkg/mod
-      - save_cache:
-          key: mod-cache-{{ checksum "go.sum" }}-v1?
-          paths:
-            - /home/circleci/.go_workspace/pkg/mod
-      - run:
-          name: lint
-          command: |
-            make lint
-      - run:
-          name: up
-          command: |
-            docker-compose up -d
-      - run:
           name: Wait for memcached
           command: |
-            make dockerize
-      - run: make test
-
+            dockerize -wait tcp://localhost:11211 -timeout 1m
+            dockerize -wait tcp://localhost:11212 -timeout 1m
+            dockerize -wait tcp://localhost:11213 -timeout 1m
+            dockerize -wait tcp://localhost:11214 -timeout 1m
+      - run:
+          name: test
+          command: make test
+      - persist_to_workspace:
+          root: .
+          paths:
+            - .
+  lint:
+    executor:
+      name: linter
+    steps:
+      - attach_workspace:
+          at: .
+      - run:
+          name: lint
+          command: golangci-lint run
 workflows:
-  build_and_deploy:
+  build:
     jobs:
       - build:
+          filters:
+            tags:
+              only: /.*/
+      - lint:
+          requires:
+            - build
           filters:
             tags:
               only: /.*/

@@ -15,8 +15,7 @@ lint: ## lint
 	docker-compose run --rm lint
 
 test: ## test
-	docker-compose run --rm --workdir ${WORKING_DIRECTORY} --entrypoint go \
-	app test -v -race -cover ./...
+	go test -v -race -cover ./...
 
 dockerize:
 	docker-compose run --rm --no-deps --entrypoint dockerize \
