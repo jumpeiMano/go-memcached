@@ -10,10 +10,9 @@ import (
 )
 
 func TestClient_Get(t *testing.T) {
-	if _, err := cl.Set(false, &Item{Key: "Get_1", Value: []byte(`{"get": 1}`), Exp: 1}); err != nil {
+	if _, err := cl.Set(false, &Item{Key: "Get_1", Value: []byte(`{"get": 1}`), Exp: 10}); err != nil {
 		t.Fatalf("Failed Set: %v", err)
 	}
-	time.Sleep(100 * time.Millisecond)
 	test := func(keys []string, eis []*Item) {
 		is, err := cl.Get(keys...)
 		if err != nil {
@@ -326,8 +325,8 @@ func TestClient_Prepend(t *testing.T) {
 
 func TestClient_Cas(t *testing.T) {
 	items := []*Item{
-		{Key: "Cas_1", Value: []byte(`{"cas": 1}`), Exp: 1},
-		{Key: "Cas_2", Value: []byte(`{"cas": 2}`), Exp: 1},
+		{Key: "Cas_1", Value: []byte(`{"cas": 1}`), Exp: 10},
+		{Key: "Cas_2", Value: []byte(`{"cas": 2}`), Exp: 10},
 	}
 	if _, err := cl.Set(true, items...); err != nil {
 		t.Fatalf("Failed Set: %v", err)
