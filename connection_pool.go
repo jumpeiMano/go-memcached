@@ -87,6 +87,7 @@ func (cp *connectionPool) newConn() (*conn, error) {
 	}
 	c := new(conn)
 	c.cl = cp.cl
+	c.createdAt = time.Now()
 	var err error
 	c.Conn, err = net.DialTimeout(network, cp.getAddr(), cp.cl.connectTimeout)
 	if err != nil {
