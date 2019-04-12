@@ -248,7 +248,10 @@ func (cl *Client) _conn(ctx context.Context, nodes []string) (map[string]*conn, 
 		go func(node string) {
 			defer wg.Done()
 			cp := cl.cps[node]
-			if cp.closed {
+			cp.mu.RLock()
+			closed := cp.closed
+			cp.mu.RUnlock()
+			if closed {
 				return
 			}
 			c, err := cp.conn(ctx)
