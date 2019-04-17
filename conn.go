@@ -30,14 +30,14 @@ var (
 )
 
 func (c *conn) reset() error {
-	if rb := c.buffered.Reader.Buffered(); rb > 0 {
-		if _, err := c.buffered.Discard(rb); err != nil {
-			return errors.Wrap(err, "Failed Discard")
-		}
-	}
 	if wb := c.buffered.Writer.Buffered(); wb > 0 {
 		if err := c.flush(); err != nil {
 			return errors.Wrap(err, "Failed flush")
+		}
+	}
+	if rb := c.buffered.Reader.Buffered(); rb > 0 {
+		if _, err := c.buffered.Discard(rb); err != nil {
+			return errors.Wrap(err, "Failed Discard")
 		}
 	}
 	return c.setDeadline()
