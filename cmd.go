@@ -326,6 +326,8 @@ func (cl *Client) Delete(noreply bool, keys ...string) (failedKeys []string, err
 			wg.Add(1)
 			go func(c *conn) {
 				defer wg.Done()
+				c.mu.Lock()
+				defer c.mu.Unlock()
 				if err := c.flush(); err != nil {
 					ec <- errors.Wrap(err, "Failed flush")
 				}
@@ -472,6 +474,8 @@ func (cl *Client) getOrGat(command string, exp int64, keys []string) ([]*Item, e
 		wg.Add(1)
 		go func(c *conn) {
 			defer wg.Done()
+			c.mu.Lock()
+			defer c.mu.Unlock()
 			if err := c.writestrings("\r\n"); err != nil {
 				ec <- errors.Wrap(err, "Failed writestrings")
 				return
@@ -618,7 +622,7 @@ func (cl *Client) store(command string, items []*Item, noreply bool) ([]string, 
 			}
 			if item.Cas != 0 {
 				if err = c.writestring(" "); err != nil {
-					ec <- errors.Wrap(err, "Failed writestrint")
+					ec <- errors.Wrap(err, "Failed writestring")
 					return
 				}
 				if err := c.write(strconv.AppendUint(nil, item.Cas, 10)); err != nil {
@@ -664,6 +668,8 @@ func (cl *Client) store(command string, items []*Item, noreply bool) ([]string, 
 			wg.Add(1)
 			go func(c *conn) {
 				defer wg.Done()
+				c.mu.Lock()
+				defer c.mu.Unlock()
 				if err := c.flush(); err != nil {
 					ec <- errors.Wrap(err, "Failed flush")
 				}

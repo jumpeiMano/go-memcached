@@ -39,7 +39,7 @@ func main() {
 ### SetConnMaxOpen
 SetConnMaxOpen sets the maximum amount of opening connections. Default is 0 (unlimited).
 
-### SetConnectTimeout
+### SetConnMaxLifetime
 SetConnMaxLifetime sets the maximum amount of time a connection may be reused.
 Expired connections may be closed lazily before reuse. If d <= 0, connections are reused forever.
 Default is 0.
