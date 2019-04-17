@@ -622,7 +622,7 @@ func (cl *Client) store(command string, items []*Item, noreply bool) ([]string, 
 			}
 			if item.Cas != 0 {
 				if err = c.writestring(" "); err != nil {
-					ec <- errors.Wrap(err, "Failed writestrint")
+					ec <- errors.Wrap(err, "Failed writestring")
 					return
 				}
 				if err := c.write(strconv.AppendUint(nil, item.Cas, 10)); err != nil {

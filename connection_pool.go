@@ -362,7 +362,7 @@ func needCloseConn(err error) bool {
 	if err == nil {
 		return false
 	}
-	errcouse := errors.Cause(err)
-	return errcouse == ErrBadConn ||
-		errcouse == ErrServer
+	errcause := errors.Cause(err)
+	return errcause == ErrBadConn ||
+		errcause == ErrServer
 }
