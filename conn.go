@@ -30,6 +30,8 @@ var (
 )
 
 func (c *conn) reset() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	if wb := c.buffered.Writer.Buffered(); wb > 0 {
 		if err := c.flush(); err != nil {
 			return errors.Wrap(err, "Failed flush")
