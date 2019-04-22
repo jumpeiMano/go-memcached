@@ -3,7 +3,6 @@ package memcached
 import (
 	"fmt"
 	"testing"
-	"time"
 
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
@@ -331,7 +330,6 @@ func TestClient_Cas(t *testing.T) {
 	if _, err := cl.Set(true, items...); err != nil {
 		t.Fatalf("Failed Set: %v", err)
 	}
-	time.Sleep(100 * time.Millisecond)
 	test := func(pattern string, item *Item, eBool bool, evs [][]byte) {
 		is, err := cl.Gets(item.Key)
 		if err != nil {
@@ -391,7 +389,6 @@ func TestClient_Delete(t *testing.T) {
 			t.Fatalf("Failed Delete: %v", err)
 		}
 		assert.Equal(t, eBool, len(failedKeys) < 1)
-		time.Sleep(10 * time.Millisecond)
 		is, err := cl.Get(keys...)
 		if err != nil {
 			t.Fatalf("Failed Get: %v", err)

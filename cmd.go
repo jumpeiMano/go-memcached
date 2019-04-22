@@ -223,28 +223,23 @@ func (cl *Client) Touch(key string, exp int64, noreply bool) error {
 			cl.logf("Failed putConn: %v", err)
 		}
 	}()
-	if err = c.writestrings("touch ", rawkey, " "); err != nil {
-		return errors.Wrap(err, "Failed writestrings")
-	}
-	if err = c.write(strconv.AppendUint(nil, uint64(exp), 10)); err != nil {
-		return errors.Wrap(err, "Failed write")
-	}
+	cmd := fmt.Sprintf("touch %s %d", rawkey, exp)
 	if noreply {
-		if err = c.writestring(" noreply "); err != nil {
+		cmd += " noreply\r\n"
+		if err = c.writestring(cmd); err != nil {
 			return errors.Wrap(err, "Failed writestring")
-		}
-		if err = c.writestrings("\r\n"); err != nil {
-			return errors.Wrap(err, "Failed writestrings")
 		}
 		err = c.flush()
 		return err
 	}
-	if err = c.writestrings("\r\n"); err != nil {
+	cmd += "\r\n"
+	if err = c.writestring(cmd); err != nil {
 		return errors.Wrap(err, "Failed writestrings")
 	}
-	reply, err := c.readline()
-	if err != nil {
-		return errors.Wrap(err, "Failed readline")
+	reply, err1 := c.readline()
+	if err1 != nil {
+		err = errors.Wrap(err1, "Failed readline")
+		return err
 	}
 	if strings.HasPrefix(reply, "NOT_FOUND") {
 		return ErrNotFound
@@ -290,23 +285,18 @@ func (cl *Client) Delete(noreply bool, keys ...string) (failedKeys []string, err
 			defer wg.Done()
 			c.mu.Lock()
 			defer c.mu.Unlock()
-			if err := c.writestrings("delete ", rawkey); err != nil {
-				ec <- errors.Wrap(err, "Failed writestrings")
-				return
-			}
+			cmd := fmt.Sprintf("delete %s", rawkey)
 			if noreply {
-				if err := c.writestring(" noreply"); err != nil {
+				cmd += " noreply\r\n"
+				if err := c.writestring(cmd); err != nil {
 					ec <- errors.Wrap(err, "Failed writestring")
 					return
 				}
-				if err := c.writestrings("\r\n"); err != nil {
-					ec <- errors.Wrap(err, "Failed writestrings")
-					return
-				}
 				return
 			}
-			if err := c.writestrings("\r\n"); err != nil {
-				ec <- errors.Wrap(err, "Failed writestrings")
+			cmd += "\r\n"
+			if err := c.writestring(cmd); err != nil {
+				ec <- errors.Wrap(err, "Failed writestring")
 				return
 			}
 			reply, err := c.readline()
@@ -364,10 +354,10 @@ func (cl *Client) FlushAll() error {
 
 	// flush_all [delay] [noreply]\r\n
 	for _, c := range connMap {
-		if err := c.writestrings("flush_all\r\n"); err != nil {
+		if err = c.writestrings("flush_all\r\n"); err != nil {
 			return errors.Wrap(err, "Failed writestrings")
 		}
-		_, err := c.readline()
+		_, err = c.readline()
 		if err != nil {
 			return errors.Wrap(err, "Failed readline")
 		}
@@ -398,9 +388,10 @@ func (cl *Client) Stats(argument string) (resultMap map[string][]byte, err error
 		}
 		var result []byte
 		for {
-			l, err := c.readline()
-			if err != nil {
-				return resultMap, errors.Wrap(err, "Failed readline")
+			l, err1 := c.readline()
+			if err1 != nil {
+				err = errors.Wrap(err1, "Failed readline")
+				return resultMap, err
 			}
 			if strings.HasPrefix(l, "END") {
 				break
@@ -413,7 +404,7 @@ func (cl *Client) Stats(argument string) (resultMap map[string][]byte, err error
 		}
 		resultMap[node] = result
 	}
-	return resultMap, err
+	return resultMap, nil
 }
 
 func (cl *Client) getOrGat(command string, exp int64, keys []string) ([]*Item, error) {
@@ -450,20 +441,15 @@ func (cl *Client) getOrGat(command string, exp int64, keys []string) ([]*Item, e
 		if !ok {
 			return results, fmt.Errorf("Failed to get a connection: %s", node)
 		}
+		var cmd string
 		if c.buffered.Writer.Buffered() == 0 {
-			if err := c.writestrings(command); err != nil {
-				return results, errors.Wrap(err, "Failed writestrings")
-			}
+			cmd = command
 			if exp > 0 {
-				if err := c.writestring(" "); err != nil {
-					return results, errors.Wrap(err, "Failed writestring")
-				}
-				if err := c.write(strconv.AppendUint(nil, uint64(exp), 10)); err != nil {
-					return results, errors.Wrap(err, "Failed write")
-				}
+				cmd += fmt.Sprintf(" %d", exp)
 			}
 		}
-		if err := c.writestrings(" ", rawkey); err != nil {
+		cmd += fmt.Sprintf(" %s", rawkey)
+		if err = c.writestrings(cmd); err != nil {
 			return results, errors.Wrap(err, "Failed writestrings")
 		}
 	}
@@ -535,7 +521,7 @@ func (cl *Client) getOrGat(command string, exp int64, keys []string) ([]*Item, e
 	wg.Wait()
 	close(ec)
 	close(resultChan)
-	for err := range ec {
+	for err = range ec {
 		if err != nil {
 			return results, err
 		}
@@ -596,51 +582,22 @@ func (cl *Client) store(command string, items []*Item, noreply bool) ([]string, 
 			c.mu.Lock()
 			defer c.mu.Unlock()
 			// <command name> <key> <flags> <exptime> <bytes> [noreply]\r\n
-			if err := c.writestrings(command, " ", rawkey, " "); err != nil {
-				ec <- errors.Wrap(err, "Failed writestrings")
-				return
-			}
-			if err := c.write(strconv.AppendUint(nil, uint64(item.Flags), 10)); err != nil {
-				ec <- errors.Wrap(err, "Failed write")
-				return
-			}
-			if err := c.writestring(" "); err != nil {
-				ec <- errors.Wrap(err, "Failed writestring")
-				return
-			}
-			if err := c.write(strconv.AppendUint(nil, uint64(item.Exp), 10)); err != nil {
-				ec <- errors.Wrap(err, "Failed write")
-				return
-			}
-			if err := c.writestring(" "); err != nil {
-				ec <- errors.Wrap(err, "Failed writestring")
-				return
-			}
-			if err := c.write(strconv.AppendInt(nil, int64(len(item.Value)), 10)); err != nil {
-				ec <- errors.Wrap(err, "Failed write")
-				return
-			}
+			cmd := fmt.Sprintf(
+				"%s %s %d %d %d ",
+				command, rawkey, item.Flags, item.Exp, len(item.Value),
+			)
 			if item.Cas != 0 {
-				if err = c.writestring(" "); err != nil {
-					ec <- errors.Wrap(err, "Failed writestring")
-					return
-				}
-				if err := c.write(strconv.AppendUint(nil, item.Cas, 10)); err != nil {
-					ec <- errors.Wrap(err, "Failed write")
-					return
-				}
+				cmd += fmt.Sprintf(" %d", item.Cas)
 			}
 			if noreply {
-				if err := c.writestring(" noreply"); err != nil {
-					ec <- errors.Wrap(err, "Failed writestring")
-					return
-				}
+				cmd += " noreply"
 			}
-			if err := c.writestring("\r\n"); err != nil {
+			cmd += "\r\n"
+			// <data block>\r\n
+			if err := c.writestring(cmd); err != nil {
 				ec <- errors.Wrap(err, "Failed writestring")
 				return
 			}
-			// <data block>\r\n
 			if err := c.write(item.Value); err != nil {
 				ec <- errors.Wrap(err, "Failed writee")
 				return
@@ -679,7 +636,7 @@ func (cl *Client) store(command string, items []*Item, noreply bool) ([]string, 
 	wg.Wait()
 	close(failedKeyChan)
 	close(ec)
-	for err := range ec {
+	for err = range ec {
 		if err != nil {
 			return failedKeys, err
 		}
