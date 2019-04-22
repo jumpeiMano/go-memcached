@@ -354,10 +354,10 @@ func (cl *Client) FlushAll() error {
 
 	// flush_all [delay] [noreply]\r\n
 	for _, c := range connMap {
-		if err := c.writestrings("flush_all\r\n"); err != nil {
+		if err = c.writestrings("flush_all\r\n"); err != nil {
 			return errors.Wrap(err, "Failed writestrings")
 		}
-		_, err := c.readline()
+		_, err = c.readline()
 		if err != nil {
 			return errors.Wrap(err, "Failed readline")
 		}
@@ -388,9 +388,10 @@ func (cl *Client) Stats(argument string) (resultMap map[string][]byte, err error
 		}
 		var result []byte
 		for {
-			l, err := c.readline()
-			if err != nil {
-				return resultMap, errors.Wrap(err, "Failed readline")
+			l, err1 := c.readline()
+			if err1 != nil {
+				err = errors.Wrap(err1, "Failed readline")
+				return resultMap, err
 			}
 			if strings.HasPrefix(l, "END") {
 				break
@@ -403,7 +404,7 @@ func (cl *Client) Stats(argument string) (resultMap map[string][]byte, err error
 		}
 		resultMap[node] = result
 	}
-	return resultMap, err
+	return resultMap, nil
 }
 
 func (cl *Client) getOrGat(command string, exp int64, keys []string) ([]*Item, error) {
@@ -520,7 +521,7 @@ func (cl *Client) getOrGat(command string, exp int64, keys []string) ([]*Item, e
 	wg.Wait()
 	close(ec)
 	close(resultChan)
-	for err := range ec {
+	for err = range ec {
 		if err != nil {
 			return results, err
 		}
@@ -635,7 +636,7 @@ func (cl *Client) store(command string, items []*Item, noreply bool) ([]string, 
 	wg.Wait()
 	close(failedKeyChan)
 	close(ec)
-	for err := range ec {
+	for err = range ec {
 		if err != nil {
 			return failedKeys, err
 		}
